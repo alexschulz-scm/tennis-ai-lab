@@ -252,7 +252,7 @@ def download_file_from_url(url):
 
 # --- MAIN PAGE LAYOUT ---
 st.title("🎾 Tennis AI Lab")
-st.markdown("Professional Video Analysis powered by Gemini 2.5")
+st.markdown("AI Professional Video Analysis for Tennis Coaches & Players")
 
 # Tabs
 tab1, tab2 = st.tabs(["📂 Upload Video File", "🔗 Web Link (YouTube/OneDrive)"])
