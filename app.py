@@ -354,7 +354,7 @@ with col1:
             # 3. Generate
             with st.spinner("🤖 Analyzing biomechanics and tactics..."):
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash-002",
+                    model="gemini-1.5-flash-001",
                     contents=[gemini_video_part, full_prompt]
                 )
 
