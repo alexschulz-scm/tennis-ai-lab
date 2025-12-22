@@ -195,11 +195,7 @@ with st.sidebar:
 
     st.divider()
 
-    # SECTION 3: TECHNICAL (Hidden by default to keep UI clean)
-    with st.expander("🤖 Advanced AI Settings"):
-        model_provider = st.selectbox("AI Provider", ["Google Gemini"])
-        model_id = st.selectbox("Model Version", ["gemini-2.5-flash", "gemini-2.0-flash"])
-
+    
 # --- HELPER: TEXT SANITIZER ---
 def clean_for_pdf(text):
     """
@@ -358,7 +354,7 @@ with col1:
             # 3. Generate
             with st.spinner("🤖 Analyzing biomechanics and tactics..."):
                 response = client.models.generate_content(
-                    model=model_id,
+                    model="gemini-2.5-flash",
                     contents=[gemini_video_part, full_prompt]
                 )
 
