@@ -33,7 +33,6 @@ TRANSLATIONS = {
         "ui_focus_label": "Focus Areas:",
         "levels": ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"],
         "focus_areas": ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"],
-        # FIXED LINE BELOW (Removed Emoji):
         "pdf_watch_video": ">> WATCH DRILL VIDEO (Click Here)",
         "pdf_scan_qr": "Scan to watch on phone"
     },
@@ -57,7 +56,6 @@ TRANSLATIONS = {
         "ui_focus_label": "Áreas de Foco:",
         "levels": ["Iniciante / Junior", "Clube / Amador", "Avançado / Universitário", "Profissional"],
         "focus_areas": ["Biomecânica (Técnica)", "Tática e Decisão", "Jogos de Perna (Footwork)", "Mental"],
-        # FIXED LINE BELOW (Removed Emoji):
         "pdf_watch_video": ">> ASSISTIR VIDEO DO DRILL (Clique Aqui)",
         "pdf_scan_qr": "Escaneie para ver no celular"
     }
@@ -126,10 +124,8 @@ class ProReport(FPDF):
         lines = text.split('\n')
         for line in lines:
             safe_line = clean_for_pdf(line).strip()
-            # Skip the search query line in the printed text
             if "SEARCH_QUERY:" in safe_line:
                 continue
-                
             if not safe_line:
                 self.ln(4)
                 continue
@@ -150,48 +146,39 @@ class ProReport(FPDF):
                 self.set_x(20)
                 self.multi_cell(0, 6, safe_line)
 
-        # --- ADD VIDEO LINK & QR CODE SECTION ---
+        # --- ADD VIDEO LINK & QR CODE ---
         if video_link:
             self.add_page()
             self.set_fill_color(0, 51, 102)
             self.rect(0, 0, 210, 297, 'F')
             
-            # Title
             self.set_y(60)
             self.set_font('Helvetica', 'B', 24)
             self.set_text_color(255, 255, 255)
             self.cell(0, 10, "TRAINING RESOURCES", align='C', new_x="LMARGIN", new_y="NEXT")
             
-            # 1. Clickable Link (Blue Button style)
             self.ln(20)
             self.set_font('Helvetica', 'B', 14)
-            self.set_text_color(100, 200, 255) # Light Blue
-            # Add Underline
+            self.set_text_color(100, 200, 255) 
             self.cell(0, 10, clean_for_pdf(self.labels["pdf_watch_video"]), align='C', link=video_link, new_x="LMARGIN", new_y="NEXT")
             
-            # 2. QR Code Image
             self.ln(10)
-            # Generate QR
+            # QR Generation
             qr = qrcode.QRCode(box_size=10, border=4)
             qr.add_data(video_link)
             qr.make(fit=True)
             img = qr.make_image(fill='black', back_color='white')
-            
-            # Save temp QR
             img_path = "temp_qr.png"
             img.save(img_path)
             
-            # Center the image (A4 width is 210mm. QR is roughly 80mm wide)
             x_pos = (210 - 80) / 2
             self.image(img_path, x=x_pos, w=80)
             
-            # Caption
             self.ln(5)
             self.set_font('Helvetica', '', 12)
             self.set_text_color(200, 200, 200)
             self.cell(0, 10, clean_for_pdf(self.labels["pdf_scan_qr"]), align='C')
             
-            # Cleanup
             if os.path.exists(img_path):
                 os.remove(img_path)
 
@@ -264,24 +251,21 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             api_key = st.secrets["GOOGLE_API_KEY"]
         client = genai.Client(api_key=api_key)
         
-        # UPLOAD
+        # UPLOAD (Spinner 1)
         with st.spinner("Uploading video to Google AI..."):
             video_file = client.files.upload(file=video_content)
         
-        # PROCESSING
-        status_box = st.empty()
-        while video_file.state.name == "PROCESSING":
-            if "English" in selected_lang:
-                status_box.info("⏳ AI is watching the video... (10-20s)")
-            else:
-                status_box.info("⏳ A IA está assistindo ao vídeo... (10-20s)")
-            time.sleep(2)
-            video_file = client.files.get(name=video_file.name)
+        # PROCESSING (Spinner 2 - FIXED to match style)
+        msg_processing = "⏳ AI is watching the video... (This usually takes 10-20 seconds)" if "English" in selected_lang else "⏳ A IA está assistindo ao vídeo... (Isso leva 10-20 segundos)"
+        
+        with st.spinner(msg_processing):
+            while video_file.state.name == "PROCESSING":
+                time.sleep(2)
+                video_file = client.files.get(name=video_file.name)
         
         if video_file.state.name == "FAILED":
             st.error("Video processing failed.")
             st.stop()
-        status_box.empty()
 
         # PROMPT SETUP
         social_add_on = ""
@@ -291,13 +275,12 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Identify 2 "Viral Moments" with Timestamps, Hooks, and Captions.
             """
 
-        # INSTRUCTION FOR SEARCH TERM
         search_instruction = """
         FINAL STEP:
         At the very end of your response, on a new line, output a YouTube Search Query for the specific drill you recommended.
         Format it exactly like this:
         SEARCH_QUERY: [Tennis Drill for X]
-        (Keep it short, e.g., "Tennis Drill Topspin Forehand" or "Tennis Split Step Drill")
+        (Keep it short, e.g., "Tennis Drill Topspin Forehand")
         """
 
         if "Quick" in report_type or "Rápida" in report_type:
@@ -352,8 +335,8 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             {social_add_on}
             """
         
-        # GENERATE
-        with st.spinner("🤖 Analyzing & Generating Drill Link..."):
+        # GENERATE (Spinner 3)
+        with st.spinner("🤖 Analyzing biomechanics & generating drill link..." if "English" in selected_lang else "🤖 Analisando biomecânica..."):
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[video_file, full_prompt]
@@ -362,19 +345,16 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.success(t["ui_success"])
         st.markdown(response.text)
         
-        # EXTRACT SEARCH TERM & CREATE LINK
+        # EXTRACT LINK & CREATE PDF
         video_link = None
         match = re.search(r"SEARCH_QUERY:\s*(.*)", response.text, re.IGNORECASE)
         if match:
             query = match.group(1).strip()
-            # Create a YouTube Search URL
             clean_query = query.replace(" ", "+")
             video_link = f"https://www.youtube.com/results?search_query={clean_query}"
         else:
-            # Fallback if AI forgets
             video_link = "https://www.youtube.com/results?search_query=tennis+training+drills"
 
-        # PDF GENERATION
         try:
             pdf_bytes = create_pdf(response.text, player_description, player_level, selected_lang, report_type, video_link)
             st.download_button(t["ui_download_btn"], data=bytes(pdf_bytes), file_name="analysis_report.pdf", mime="application/pdf")
