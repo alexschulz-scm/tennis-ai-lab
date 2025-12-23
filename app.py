@@ -2,24 +2,12 @@ import streamlit as st
 import os
 import time
 import tempfile
-import requests
-import yt_dlp
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 from fpdf import FPDF
-from urllib.parse import urlparse
 
 # 1. Load Environment Variables
 load_dotenv()
-
-# --- DEBUGGING: PRINT THE KEY IDENTITY (Remove this after it works) ---
-try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    # st.write(f"🔑 DEBUG: App is using key ending in: ...{api_key[-4:]}")
-except Exception:
-    st.error("❌ Google API Key not found in Secrets.")
-    st.stop()
 
 # --- TRANSLATIONS CONFIGURATION ---
 TRANSLATIONS = {
@@ -51,7 +39,6 @@ TRANSLATIONS = {
 PRIMARY_COLOR = (0, 51, 102)    
 ACCENT_COLOR = (102, 204, 0)    
 TEXT_COLOR = (50, 50, 50)       
-BG_COLOR = (245, 245, 245)      
 
 # --- PDF CLASS ---
 class ProReport(FPDF):
@@ -158,51 +145,6 @@ class ProReport(FPDF):
                 self.multi_cell(width, 6, safe_line)
 
 # --- HELPER FUNCTIONS ---
-
-def download_youtube_video(url):
-    """Downloads YouTube video with anti-blocking measures."""
-    output_filename = "temp_video.mp4"
-    
-    # Remove old file if it exists
-    if os.path.exists(output_filename):
-        os.remove(output_filename)
-    
-    # 🛡️ STEALTH CONFIGURATION
-    ydl_opts = {
-        'format': 'best[ext=mp4]/best', 
-        'outtmpl': output_filename,
-        'quiet': True,
-        'no_warnings': True,
-        # Spoof a real browser to bypass 403 errors
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
-        }
-    }
-    
-    status_msg = st.empty()
-    status_msg.info("⏳ Downloading from YouTube (Attempting to bypass blocks)...")
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        # Verify file actually exists and has size
-        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
-            status_msg.success("✅ Download complete! Sending to Gemini...")
-            time.sleep(1) 
-            status_msg.empty() 
-            return output_filename
-        else:
-            raise Exception("File downloaded but is empty.")
-            
-    except Exception as e:
-        status_msg.error(f"❌ YouTube blocked the download: {e}")
-        st.warning("💡 TIP: YouTube blocks cloud servers aggressively. If this fails, please download the video to your phone/laptop manually and use the 'Upload Video' tab instead.")
-        return None
-
 def clean_for_pdf(text):
     """Sanitizes text for PDF generation."""
     replacements = {
@@ -220,58 +162,23 @@ def create_pdf(analysis_text, player_desc, context_text, level_text, lang_key):
     pdf.chapter_body(analysis_text)
     return pdf.output(dest='S')
 
-def download_file_from_url(url):
-    try:
-        with st.spinner("Downloading video from URL..."):
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
-            tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-            for chunk in response.iter_content(chunk_size=8192):
-                tfile.write(chunk)
-            tfile.close()
-            return tfile.name
-    except Exception as e:
-        st.error(f"Download Error: {e}")
-        return None
-
 # --- MAIN PAGE LAYOUT ---
 st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
 
 st.title("🎾 Tennis AI Lab")
 st.markdown("AI Professional Video Analysis for Tennis Coaches & Players")
 
-# Tabs
-tab1, tab2 = st.tabs(["📂 Upload Video File", "🔗 Web Link (YouTube/OneDrive)"])
+# --- FILE UPLOADER (No Tabs) ---
+video_content = None
+uploaded_file = st.file_uploader("📂 Upload Video (MP4, MOV)", type=["mp4", "mov"])
 
-video_content = None # This will store the path to the LOCAL file (uploaded or downloaded)
-is_youtube_link = False
-youtube_url_str = None
-
-# TAB 1: Local Upload
-with tab1:
-    uploaded_file = st.file_uploader("Drop a video here (MP4, MOV)", type=["mp4", "mov"])
-    if uploaded_file:
-        st.video(uploaded_file)
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        tfile.write(uploaded_file.read())
-        video_content = tfile.name
-        tfile.close()
-
-# TAB 2: Web Link
-with tab2:
-    web_url = st.text_input("Paste Video URL", placeholder="https://youtube.com/... or OneDrive direct link")
-    if web_url:
-        domain = urlparse(web_url).netloc
-        if "youtube" in domain or "youtu.be" in domain:
-            st.video(web_url)
-            is_youtube_link = True
-            youtube_url_str = web_url # Store URL to download later
-        else:
-            if st.button("Load Web Video"):
-                downloaded_path = download_file_from_url(web_url)
-                if downloaded_path:
-                    st.video(downloaded_path)
-                    video_content = downloaded_path
+if uploaded_file:
+    st.video(uploaded_file)
+    # Save to temp file immediately
+    tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    tfile.write(uploaded_file.read())
+    video_content = tfile.name
+    tfile.close()
 
 # --- SIDEBAR: CONFIGURATION ---
 with st.sidebar:
@@ -293,8 +200,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
         
-        # Validation
-        if not video_content and not is_youtube_link:
+        if not video_content:
             st.warning("⚠️ Please upload a video first.")
             st.stop()
             
@@ -305,21 +211,8 @@ with col1:
         try:
             client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
             
-            # --- CRITICAL FIX: UNIFIED UPLOAD PATH ---
-            # If it's YouTube, we DOWNLOAD it first, then treat it as a local file.
-            # We NO LONGER pass the URL to Gemini directly.
-            
-            final_file_path = video_content # Default to local file
-            
-            if is_youtube_link:
-                # Run the downloader bypass
-                final_file_path = download_youtube_video(youtube_url_str)
-                if not final_file_path:
-                    st.stop() # Download failed
-            
-            # Now we upload the physical file (whether from user or from YouTube)
             with st.spinner("Uploading video to AI Engine..."):
-                video_file = client.files.upload(file=final_file_path)
+                video_file = client.files.upload(file=video_content)
             
             # Polling Loop
             status_text = st.empty()
@@ -382,6 +275,5 @@ with col1:
                 st.error(f"⚠️ PDF Generation Failed: {e}")
             
         finally:
-            # Clean up temp files
-            if is_youtube_link and final_file_path and os.path.exists(final_file_path):
-                os.unlink(final_file_path)
+            if video_content and os.path.exists(video_content):
+                os.unlink(video_content)
