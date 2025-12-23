@@ -9,9 +9,10 @@ from fpdf import FPDF
 # 1. Load Environment Variables
 load_dotenv()
 
-# --- TRANSLATIONS CONFIGURATION ---
+# --- CONFIGURATION & TRANSLATIONS ---
 TRANSLATIONS = {
     "English": {
+        # PDF Content
         "pdf_title": "MATCH ANALYSIS",
         "pdf_subtitle": "AI-POWERED PERFORMANCE REVIEW",
         "pdf_header": "TENNIS AI LAB | Performance Report",
@@ -20,9 +21,31 @@ TRANSLATIONS = {
         "label_date": "Date",
         "label_coach": "Coach's Analysis:",
         "context_label": "Context & Notes:",
-        "prompt_instruction": "Respond in English."
+        "prompt_instruction": "Respond in English.",
+        
+        # UI Interface
+        "ui_title": "🎾 Tennis AI Lab",
+        "ui_subtitle": "AI Professional Video Analysis for Tennis Coaches & Players",
+        "ui_upload_label": "📂 Upload Video (MP4, MOV)",
+        "ui_sidebar_title": "⚙️ Analysis Setup",
+        "ui_lang_label": "App Language / Idioma",
+        "ui_sec_player": "1. Target Player",
+        "ui_desc_placeholder": "e.g. 'Player in red shirt'",
+        "ui_desc_label": "Who should I watch?",
+        "ui_sec_context": "2. Context & Goals",
+        "ui_level_label": "Player Level",
+        "ui_notes_label": "Specific Issues / Context:",
+        "ui_focus_label": "Focus Areas:",
+        "ui_btn_analyze": "🚀 Run Analysis",
+        "ui_success": "Analysis Complete!",
+        "ui_download_btn": "📥 Download PDF Report",
+        "ui_warning_video": "⚠️ Please upload a video first.",
+        "ui_warning_desc": "⚠️ Please describe WHO to watch in the sidebar.",
+        "levels": ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"],
+        "focus_areas": ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"]
     },
     "Portuguese": {
+        # PDF Content
         "pdf_title": "ANÁLISE TÉCNICA",
         "pdf_subtitle": "RELATÓRIO DE PERFORMANCE COM IA",
         "pdf_header": "TENNIS AI LAB | Relatório Técnico",
@@ -31,7 +54,28 @@ TRANSLATIONS = {
         "label_date": "Data",
         "label_coach": "Análise do Treinador:",
         "context_label": "Contexto e Notas:",
-        "prompt_instruction": "Responda em Português Brasileiro. Use termos técnicos de tênis adequados (ex: 'Topspin', 'Slice', 'Voleio')."
+        "prompt_instruction": "Responda em Português Brasileiro. Use termos técnicos de tênis adequados (ex: 'Topspin', 'Slice', 'Voleio').",
+        
+        # UI Interface
+        "ui_title": "🎾 Tennis AI Lab",
+        "ui_subtitle": "Análise de Vídeo Profissional com IA",
+        "ui_upload_label": "📂 Enviar Vídeo (MP4, MOV)",
+        "ui_sidebar_title": "⚙️ Configuração",
+        "ui_lang_label": "Idioma / Language",
+        "ui_sec_player": "1. Identificação",
+        "ui_desc_placeholder": "ex: 'Jogador de camisa vermelha'",
+        "ui_desc_label": "Quem devo analisar?",
+        "ui_sec_context": "2. Contexto e Objetivos",
+        "ui_level_label": "Nível do Atleta",
+        "ui_notes_label": "Notas / Histórico de Lesão:",
+        "ui_focus_label": "Áreas de Foco:",
+        "ui_btn_analyze": "🚀 Iniciar Análise",
+        "ui_success": "Análise Concluída!",
+        "ui_download_btn": "📥 Baixar Relatório PDF",
+        "ui_warning_video": "⚠️ Por favor, envie um vídeo primeiro.",
+        "ui_warning_desc": "⚠️ Por favor, descreva QUEM devo analisar na barra lateral.",
+        "levels": ["Iniciante / Junior", "Clube / Amador", "Avançado / Universitário", "Profissional"],
+        "focus_areas": ["Biomecânica (Técnica)", "Tática e Decisão", "Jogos de Perna (Footwork)", "Mental"]
     }
 }
 
@@ -165,47 +209,73 @@ def create_pdf(analysis_text, player_desc, context_text, level_text, lang_key):
 # --- MAIN PAGE LAYOUT ---
 st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
 
-st.title("🎾 Tennis AI Lab")
-st.markdown("AI Professional Video Analysis for Tennis Coaches & Players")
+# --- LANGUAGE SETUP ---
+# Simple query param check or default to English
+if "lang" not in st.session_state:
+    st.session_state.lang = "English"
 
-# --- FILE UPLOADER (No Tabs) ---
+def set_language():
+    # Callback to update language
+    pass
+
+with st.sidebar:
+    st.title("⚙️ Config")
+    # This widget controls the whole app language
+    selected_lang = st.selectbox(
+        "Language / Idioma", 
+        ["English", "Portuguese"], 
+        key="lang_select"
+    )
+    
+    # 🕵️ CREATOR MODE (Hidden Toggle)
+    st.divider()
+    creator_mode = st.checkbox("Creator Mode (Social Media)", value=False)
+    if creator_mode:
+        st.caption("✅ Enabled: Reports will include Instagram/Reels suggestions.")
+
+# Load the dictionary for the selected language
+t = TRANSLATIONS[selected_lang]
+
+# --- UI CONTENT ---
+st.title(t["ui_title"])
+st.markdown(t["ui_subtitle"])
+
+# --- FILE UPLOADER ---
 video_content = None
-uploaded_file = st.file_uploader("📂 Upload Video (MP4, MOV)", type=["mp4", "mov"])
+uploaded_file = st.file_uploader(t["ui_upload_label"], type=["mp4", "mov"])
 
 if uploaded_file:
     st.video(uploaded_file)
-    # Save to temp file immediately
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
     tfile.write(uploaded_file.read())
     video_content = tfile.name
     tfile.close()
 
-# --- SIDEBAR: CONFIGURATION ---
+# --- SIDEBAR: REST OF CONFIG ---
 with st.sidebar:
-    st.title("⚙️ Analysis Setup")
-    language_choice = st.selectbox("Report Language", ["English", "Portuguese"])
-    st.header("1. Target Player")
-    st.info("💡 Critical if multiple people are visible.")
-    player_description = st.text_input("Who should I watch?", placeholder="e.g. 'Player in red shirt'")
+    st.header(t["ui_sec_player"])
+    st.info("💡 " + ("Critical if multiple people are visible." if selected_lang == "English" else "Crítico se houver várias pessoas."))
+    player_description = st.text_input(t["ui_desc_label"], placeholder=t["ui_desc_placeholder"])
+    
     st.divider()
-    st.header("2. Context & Goals")
-    player_level = st.selectbox("Player Level", ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"])
-    player_notes = st.text_area("Specific Issues / Context:", placeholder="e.g. 'Recovering from wrist injury'")
-    analysis_focus = st.multiselect("Focus Areas:", ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"], default=["Biomechanics (Technique)"])
-    st.divider()
+    
+    st.header(t["ui_sec_context"])
+    player_level = st.selectbox(t["ui_level_label"], t["levels"])
+    player_notes = st.text_area(t["ui_notes_label"], placeholder="...")
+    analysis_focus = st.multiselect(t["ui_focus_label"], t["focus_areas"], default=[t["focus_areas"][0]])
 
 # --- ACTION AREA ---
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+    if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         
         if not video_content:
-            st.warning("⚠️ Please upload a video first.")
+            st.warning(t["ui_warning_video"])
             st.stop()
             
         if not player_description:
-            st.warning("⚠️ Please describe WHO to watch in the sidebar.")
+            st.warning(t["ui_warning_desc"])
             st.stop()
 
         try:
@@ -218,7 +288,7 @@ with col1:
             status_text = st.empty()
             bar = st.progress(0)
             while video_file.state.name == "PROCESSING":
-                status_text.caption("⏳ AI is processing video frames...")
+                status_text.caption("⏳ AI processing..." if selected_lang == "English" else "⏳ IA processando...")
                 time.sleep(2)
                 video_file = client.files.get(name=video_file.name)
                 bar.progress(50)
@@ -231,48 +301,69 @@ with col1:
             status_text.empty()
             gemini_video_part = video_file
 
-            # Build Prompt
-            full_prompt = f"""
+            # --- DYNAMIC PROMPT BUILDING ---
+            
+            # 1. Base Instructions
+            base_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
+            TARGET PLAYER: {player_description}
+            LEVEL: {player_level}
+            NOTES: {player_notes}
+            FOCUS: {', '.join(analysis_focus)}
+            LANGUAGE: {t['prompt_instruction']}
             
-            TARGET PLAYER IDENTITY: {player_description}
-            PLAYER LEVEL: {player_level}
-            CONTEXT/NOTES: {player_notes}
-            FOCUS AREAS: {', '.join(analysis_focus)}
-
-            LANGUAGE INSTRUCTION: {TRANSLATIONS[language_choice]['prompt_instruction']}
-            
-            INSTRUCTIONS:
-            1. Start with a "Quick Assessment" (2-3 sentences summary).
-            2. Provide detailed observation based on the Focus Areas selected.
-            3. End with 3 specific "Drills or Cues" to fix the main issue.
-            
-            Tone: Professional, encouraging, but technically precise.
+            STRUCTURE:
+            1. Quick Assessment (Summary)
+            2. Detailed Observation (Technique & Tactics)
+            3. 3 Key Drills/Cues
             """
             
+            # 2. Creator Mode Add-on (The "Secret Sauce")
+            social_add_on = ""
+            if creator_mode:
+                social_add_on = """
+                
+                --- SOCIAL MEDIA CONTENT PACK ---
+                (This section is for the editor, separate from the coach report)
+                
+                Identify 2-3 "Viral Worthy" moments in the video.
+                Format exactly like this:
+                
+                **CLIP 1:** [MM:SS - MM:SS]
+                **HOOK:** (A catchy text overlay for the video, e.g., "Stop Hitting Net!")
+                **CAPTION:** (A short, engaging Instagram caption with hashtags)
+                **WHY:** (Why this moment is shareable - e.g., "Great reaction time" or "Perfect mistake to learn from")
+                """
+
+            full_prompt = base_prompt + social_add_on
+            
             # Generate
-            with st.spinner("🤖 Analyzing biomechanics and tactics..."):
+            with st.spinner("🤖 Analyzing..." if selected_lang == "English" else "🤖 Analisando..."):
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[gemini_video_part, full_prompt]
                 )
 
             # Display Results
-            st.success("Analysis Complete!")
-            st.markdown("### 📋 Coach's Report")
+            st.success(t["ui_success"])
+            st.markdown("### 📋 " + t["label_coach"])
             st.markdown(response.text)
             
             # PDF Generation
+            # Note: We do NOT include the Social Media part in the PDF (Client doesn't need to see it)
+            # We filter it out if needed, or just print everything.
+            # For now, let's print everything, but in the future, we can split it.
+            
             try:
-                pdf_bytes = create_pdf(response.text, player_description, player_notes, player_level, language_choice)
+                pdf_bytes = create_pdf(response.text, player_description, player_notes, player_level, selected_lang)
                 st.download_button(
-                    label="📥 Download PDF Report",
+                    label=t["ui_download_btn"],
                     data=bytes(pdf_bytes),
-                    file_name="tennis_analysis.pdf",
+                    file_name=f"tennis_analysis_{selected_lang}.pdf",
                     mime="application/pdf"
                 )
             except Exception as e:
-                st.error(f"⚠️ PDF Generation Failed: {e}")
+                st.error(f"⚠️ PDF Error: {e}")
             
         finally:
             if video_content and os.path.exists(video_content):
