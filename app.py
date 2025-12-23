@@ -3,24 +3,25 @@ import os
 import time
 import tempfile
 import requests
+import yt_dlp
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from fpdf import FPDF
 from urllib.parse import urlparse
-from fpdf import FPDF
 
 # 1. Load Environment Variables
 load_dotenv()
 
-api_key = st.secrets["GOOGLE_API_KEY"]
-
-# --- DEBUGGING: PRINT THE KEY IDENTITY ---
-# Show the last 4 characters so we can verify it matches your NEW key
-st.write(f"🔑 DEBUG: App is using key ending in: ...{api_key[-4:]}")
+# --- DEBUGGING: PRINT THE KEY IDENTITY (Remove this after it works) ---
+try:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    # st.write(f"🔑 DEBUG: App is using key ending in: ...{api_key[-4:]}")
+except Exception:
+    st.error("❌ Google API Key not found in Secrets.")
+    st.stop()
 
 # --- TRANSLATIONS CONFIGURATION ---
-# This dictionary controls all the text on the PDF and UI
 TRANSLATIONS = {
     "English": {
         "pdf_title": "MATCH ANALYSIS",
@@ -52,27 +53,24 @@ ACCENT_COLOR = (102, 204, 0)
 TEXT_COLOR = (50, 50, 50)       
 BG_COLOR = (245, 245, 245)      
 
+# --- PDF CLASS ---
 class ProReport(FPDF):
     def __init__(self, player_name, level, lang_key):
         super().__init__()
         self.player_name = player_name
         self.level = level
-        self.labels = TRANSLATIONS[lang_key] # Load the correct language dictionary
+        self.labels = TRANSLATIONS[lang_key]
         self.set_auto_page_break(auto=True, margin=20)
         self.set_margins(left=20, top=20, right=20)
 
     def header(self):
         if self.page_no() == 1: return
-
         self.set_fill_color(*PRIMARY_COLOR)
         self.rect(0, 0, 210, 15, 'F') 
-        
         self.set_font('Helvetica', 'B', 10)
         self.set_text_color(255, 255, 255)
         self.set_xy(20, 4)
-        # Use dynamic label
         self.cell(0, 8, clean_for_pdf(self.labels["pdf_header"]), align='L')
-        
         self.set_xy(0, 4)
         self.cell(190, 8, clean_for_pdf(f"{self.player_name}"), align='R')
         self.ln(20)
@@ -88,13 +86,13 @@ class ProReport(FPDF):
         self.set_fill_color(*PRIMARY_COLOR)
         self.rect(0, 0, 210, 297, 'F')
         
-        # Title (Dynamic)
+        # Title
         self.set_y(80)
         self.set_font('Helvetica', 'B', 36)
         self.set_text_color(255, 255, 255) 
         self.cell(0, 20, clean_for_pdf(self.labels["pdf_title"]), align='C', new_x="LMARGIN", new_y="NEXT")
         
-        # Subtitle (Dynamic)
+        # Subtitle
         self.set_font('Helvetica', '', 18)
         self.set_text_color(*ACCENT_COLOR) 
         self.cell(0, 10, clean_for_pdf(self.labels["pdf_subtitle"]), align='C', new_x="LMARGIN", new_y="NEXT")
@@ -111,7 +109,7 @@ class ProReport(FPDF):
         self.set_xy(box_x + 5, box_y + 5)
         self.set_text_color(*TEXT_COLOR)
         
-        # Player (Dynamic Labels)
+        # Player Info
         self.set_font('Helvetica', 'B', 14)
         self.multi_cell(box_w - 10, 8, clean_for_pdf(f"{self.labels['label_player']}: {self.player_name}"), align='C')
         
@@ -127,7 +125,6 @@ class ProReport(FPDF):
         self.set_text_color(*TEXT_COLOR)
         self.set_font('Helvetica', '', 11)
         
-        # Add "Coach's Analysis" header dynamically
         self.set_font('Helvetica', 'B', 14)
         self.cell(0, 10, clean_for_pdf(self.labels["label_coach"]), new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
@@ -160,79 +157,50 @@ class ProReport(FPDF):
                 self.set_x(self.l_margin) 
                 self.multi_cell(width, 6, safe_line)
 
-st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
+# --- HELPER FUNCTIONS ---
 
-# --- SIDEBAR: CONFIGURATION ---
-with st.sidebar:
-    st.title("⚙️ Analysis Setup")
+def download_youtube_video(url):
+    """Downloads YouTube video to a local file so we can upload it to Gemini."""
+    output_filename = "temp_video.mp4"
     
-    # 🆕 LANGUAGE SELECTOR
-    language_choice = st.selectbox("Report Language", ["English", "Portuguese"])
-
-    # SECTION 1: TARGET PLAYER (The "Who")
-    st.header("1. Target Player")
-    st.info("💡 Critical if multiple people are visible.")
+    # Remove old file if it exists
+    if os.path.exists(output_filename):
+        os.remove(output_filename)
     
-    player_description = st.text_input(
-        "Who should I watch?",
-        placeholder="e.g. 'Player in red shirt', 'Player on near side', 'The Server'"
-    )
-
-    st.divider()
-
-    # SECTION 2: CONTEXT (The "What")
-    st.header("2. Context & Goals")
-    
-    player_level = st.selectbox(
-        "Player Level",
-        ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"]
-    )
-    
-    player_notes = st.text_area(
-        "Specific Issues / Context:", 
-        placeholder="e.g. 'Recovering from wrist injury', 'Tendency to hit long', 'Working on kick serve'"
-    )
-    
-    analysis_focus = st.multiselect(
-        "Focus Areas:",
-        ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game / Body Language"],
-        default=["Biomechanics (Technique)"]
-    )
-
-    st.divider()
-
-    
-# --- HELPER: TEXT SANITIZER ---
-def clean_for_pdf(text):
-    """
-    Replaces smart quotes, dashes, and other non-Latin-1 characters 
-    with their standard ASCII equivalents to prevent PDF errors.
-    """
-    replacements = {
-        "–": "-",       # En-dash to hyphen
-        "—": "--",      # Em-dash to double hyphen
-        "“": '"',       # Smart quote open
-        "”": '"',       # Smart quote close
-        "‘": "'",       # Smart apostrophe open
-        "’": "'",       # Smart apostrophe close
-        "…": "...",     # Ellipsis
-        "•": "-",       # Bullet to hyphen
-        "✔": "[OK]",    # Checkmark
-        "❌": "[X]",    # Cross
-        "🎾": "[Tennis]" # Emoji specific to your app
+    # Configuration to download a single MP4 file
+    ydl_opts = {
+        'format': 'best[ext=mp4]', 
+        'outtmpl': output_filename,
+        'quiet': True,
+        'no_warnings': True,
     }
     
-    # 1. Apply specific replacements
+    status_msg = st.empty()
+    status_msg.info("⏳ Downloading video from YouTube... (This may take 10-20 seconds)")
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        status_msg.success("✅ Download complete! Sending to Gemini...")
+        time.sleep(1) 
+        status_msg.empty() 
+        return output_filename
+    except Exception as e:
+        status_msg.error(f"❌ Download failed: {e}")
+        return None
+
+def clean_for_pdf(text):
+    """Sanitizes text for PDF generation."""
+    replacements = {
+        "–": "-", "—": "--", "“": '"', "”": '"', 
+        "‘": "'", "’": "'", "…": "...", "•": "-", 
+        "✔": "[OK]", "❌": "[X]", "🎾": "[Tennis]" 
+    }
     for char, replacement in replacements.items():
         text = text.replace(char, replacement)
-    
-    # 2. Final safety net: Force conversion to Latin-1, replacing unknowns with '?'
-    # This ensures NO character can crash the PDF generator
     return text.encode('latin-1', 'replace').decode('latin-1')
 
-# --- HELPER: PDF GENERATOR UPDATE ---
 def create_pdf(analysis_text, player_desc, context_text, level_text, lang_key):
-    # Pass the 'lang_key' to the class so it knows which dictionary to use
     pdf = ProReport(player_desc, level_text, lang_key)
     pdf.create_cover_page(context_text)
     pdf.chapter_body(analysis_text)
@@ -253,15 +221,17 @@ def download_file_from_url(url):
         return None
 
 # --- MAIN PAGE LAYOUT ---
+st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
+
 st.title("🎾 Tennis AI Lab")
 st.markdown("AI Professional Video Analysis for Tennis Coaches & Players")
 
 # Tabs
 tab1, tab2 = st.tabs(["📂 Upload Video File", "🔗 Web Link (YouTube/OneDrive)"])
 
-video_content = None
-source_path = None
-is_youtube = False
+video_content = None # This will store the path to the LOCAL file (uploaded or downloaded)
+is_youtube_link = False
+youtube_url_str = None
 
 # TAB 1: Local Upload
 with tab1:
@@ -280,71 +250,87 @@ with tab2:
         domain = urlparse(web_url).netloc
         if "youtube" in domain or "youtu.be" in domain:
             st.video(web_url)
-            video_content = web_url
-            is_youtube = True
+            is_youtube_link = True
+            youtube_url_str = web_url # Store URL to download later
         else:
             if st.button("Load Web Video"):
                 downloaded_path = download_file_from_url(web_url)
                 if downloaded_path:
                     st.video(downloaded_path)
                     video_content = downloaded_path
-                    source_path = downloaded_path
+
+# --- SIDEBAR: CONFIGURATION ---
+with st.sidebar:
+    st.title("⚙️ Analysis Setup")
+    language_choice = st.selectbox("Report Language", ["English", "Portuguese"])
+    st.header("1. Target Player")
+    st.info("💡 Critical if multiple people are visible.")
+    player_description = st.text_input("Who should I watch?", placeholder="e.g. 'Player in red shirt'")
+    st.divider()
+    st.header("2. Context & Goals")
+    player_level = st.selectbox("Player Level", ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"])
+    player_notes = st.text_area("Specific Issues / Context:", placeholder="e.g. 'Recovering from wrist injury'")
+    analysis_focus = st.multiselect("Focus Areas:", ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"], default=["Biomechanics (Technique)"])
+    st.divider()
 
 # --- ACTION AREA ---
-st.divider()
 col1, col2 = st.columns([2, 1])
 
 with col1:
     if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
         
         # Validation
-        if not video_content:
+        if not video_content and not is_youtube_link:
             st.warning("⚠️ Please upload a video first.")
             st.stop()
             
         if not player_description:
-            st.warning("⚠️ Please describe WHO to watch in the sidebar (e.g., 'Player in red').")
+            st.warning("⚠️ Please describe WHO to watch in the sidebar.")
             st.stop()
 
         try:
             client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
-            gemini_video_part = None
+            
+            # --- CRITICAL FIX: UNIFIED UPLOAD PATH ---
+            # If it's YouTube, we DOWNLOAD it first, then treat it as a local file.
+            # We NO LONGER pass the URL to Gemini directly.
+            
+            final_file_path = video_content # Default to local file
+            
+            if is_youtube_link:
+                # Run the downloader bypass
+                final_file_path = download_youtube_video(youtube_url_str)
+                if not final_file_path:
+                    st.stop() # Download failed
+            
+            # Now we upload the physical file (whether from user or from YouTube)
+            with st.spinner("Uploading video to AI Engine..."):
+                video_file = client.files.upload(file=final_file_path)
+            
+            # Polling Loop
+            status_text = st.empty()
+            bar = st.progress(0)
+            while video_file.state.name == "PROCESSING":
+                status_text.caption("⏳ AI is processing video frames...")
+                time.sleep(2)
+                video_file = client.files.get(name=video_file.name)
+                bar.progress(50)
+            
+            if video_file.state.name == "FAILED":
+                st.error("Processing failed.")
+                st.stop()
+            
+            bar.progress(100)
+            status_text.empty()
+            gemini_video_part = video_file
 
-            # 1. Handle Video Source
-            if is_youtube:
-                with st.spinner("Connecting to YouTube stream..."):
-                    gemini_video_part = types.Part.from_uri(file_uri=video_content, mime_type="video/mp4")
-            else:
-                with st.spinner("Uploading to AI Engine..."):
-                    video_file = client.files.upload(file=video_content)
-                
-                # Polling Loop
-                status_text = st.empty()
-                bar = st.progress(0)
-                while video_file.state.name == "PROCESSING":
-                    status_text.caption("⏳ AI is processing video frames...")
-                    time.sleep(2)
-                    video_file = client.files.get(name=video_file.name)
-                    bar.progress(50)
-                
-                if video_file.state.name == "FAILED":
-                    st.error("Processing failed.")
-                    st.stop()
-                
-                bar.progress(100)
-                status_text.empty()
-                gemini_video_part = video_file
-
-            # 2. Build the "Smart" Prompt
+            # Build Prompt
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
             
             TARGET PLAYER IDENTITY: {player_description}
-            (Ignore other people/coaches in the video unless they are interacting with the target.)
-            
             PLAYER LEVEL: {player_level}
             CONTEXT/NOTES: {player_notes}
-            
             FOCUS AREAS: {', '.join(analysis_focus)}
 
             LANGUAGE INSTRUCTION: {TRANSLATIONS[language_choice]['prompt_instruction']}
@@ -357,20 +343,19 @@ with col1:
             Tone: Professional, encouraging, but technically precise.
             """
             
-            # 3. Generate
+            # Generate
             with st.spinner("🤖 Analyzing biomechanics and tactics..."):
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[gemini_video_part, full_prompt]
                 )
 
-            # 4. Display Results
+            # Display Results
             st.success("Analysis Complete!")
             st.markdown("### 📋 Coach's Report")
             st.markdown(response.text)
             
-            # Pass 'player_level' as the 4th argument
-            # In your main button loop:
+            # PDF Generation
             try:
                 pdf_bytes = create_pdf(response.text, player_description, player_notes, player_level, language_choice)
                 st.download_button(
@@ -381,11 +366,8 @@ with col1:
                 )
             except Exception as e:
                 st.error(f"⚠️ PDF Generation Failed: {e}")
-                st.warning("The analysis is visible above, but the PDF could not be created.")
-           
+            
         finally:
             # Clean up temp files
-            if source_path and os.path.exists(source_path):
-                os.unlink(source_path)
-            if video_content and not is_youtube and os.path.exists(video_content) and video_content != source_path:
-                os.unlink(video_content)
+            if is_youtube_link and final_file_path and os.path.exists(final_file_path):
+                os.unlink(final_file_path)
