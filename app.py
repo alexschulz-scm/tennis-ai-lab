@@ -13,6 +13,12 @@ from fpdf import FPDF
 # 1. Load Environment Variables
 load_dotenv()
 
+api_key = st.secrets["GOOGLE_API_KEY"]
+
+# --- DEBUGGING: PRINT THE KEY IDENTITY ---
+# Show the last 4 characters so we can verify it matches your NEW key
+st.write(f"🔑 DEBUG: App is using key ending in: ...{api_key[-4:]}")
+
 # --- TRANSLATIONS CONFIGURATION ---
 # This dictionary controls all the text on the PDF and UI
 TRANSLATIONS = {
