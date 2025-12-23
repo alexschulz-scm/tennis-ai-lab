@@ -33,7 +33,8 @@ TRANSLATIONS = {
         "ui_focus_label": "Focus Areas:",
         "levels": ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"],
         "focus_areas": ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"],
-        "pdf_watch_video": "▶️ WATCH DRILL VIDEO (Click Here)",
+        # FIXED LINE BELOW (Removed Emoji):
+        "pdf_watch_video": ">> WATCH DRILL VIDEO (Click Here)",
         "pdf_scan_qr": "Scan to watch on phone"
     },
     "Portuguese": {
@@ -56,7 +57,8 @@ TRANSLATIONS = {
         "ui_focus_label": "Áreas de Foco:",
         "levels": ["Iniciante / Junior", "Clube / Amador", "Avançado / Universitário", "Profissional"],
         "focus_areas": ["Biomecânica (Técnica)", "Tática e Decisão", "Jogos de Perna (Footwork)", "Mental"],
-        "pdf_watch_video": "▶️ ASSISTIR VÍDEO DO DRILL (Clique Aqui)",
+        # FIXED LINE BELOW (Removed Emoji):
+        "pdf_watch_video": ">> ASSISTIR VIDEO DO DRILL (Clique Aqui)",
         "pdf_scan_qr": "Escaneie para ver no celular"
     }
 }
