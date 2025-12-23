@@ -200,26 +200,24 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.stop()
 
     try:
-        # 1. API KEY LOGIC (Safe for Cloud & Local)
+        # API KEY & CLIENT
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             api_key = st.secrets["GOOGLE_API_KEY"]
             
         client = genai.Client(api_key=api_key)
         
-        # 2. UPLOAD PHASE
+        # UPLOAD
         with st.spinner("Uploading video to Google AI..."):
             video_file = client.files.upload(file=video_content)
         
-        # 3. PROCESSING PHASE (The Missing Progress Indicator!)
+        # PROCESSING LOOP
         status_box = st.empty()
-        
         while video_file.state.name == "PROCESSING":
             if "English" in selected_lang:
                 status_box.info("⏳ AI is watching the video... (This usually takes 10-20 seconds)")
             else:
                 status_box.info("⏳ A IA está assistindo ao vídeo... (Isso leva 10-20 segundos)")
-            
             time.sleep(2)
             video_file = client.files.get(name=video_file.name)
         
@@ -227,9 +225,9 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             st.error("Video processing failed.")
             st.stop()
             
-        status_box.empty() # Clear message when done
+        status_box.empty()
 
-        # 4. PROMPT GENERATION
+        # SOCIAL MEDIA ADD-ON
         social_add_on = ""
         if creator_mode:
             social_add_on = """
@@ -237,11 +235,12 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Identify 2 "Viral Moments" with Timestamps, Hooks, and Captions.
             """
 
+        # 1. QUICK FIX MODE
         if "Quick" in report_type or "Rápida" in report_type:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
             TARGET: {player_description}
-            LEVEL: {player_level}
+            DECLARED LEVEL: {player_level}
             NOTES: {player_notes}
             FOCUS: {', '.join(analysis_focus)}
             LANGUAGE: {t['prompt_instruction']}
@@ -256,11 +255,13 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Keep it under 300 words. No fluff.
             {social_add_on}
             """
+            
+        # 2. FULL AUDIT MODE (With Reality Check & Archetype)
         else:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
             TARGET: {player_description}
-            LEVEL: {player_level}
+            DECLARED LEVEL: {player_level}
             NOTES: {player_notes}
             FOCUS: {', '.join(analysis_focus)}
             LANGUAGE: {t['prompt_instruction']}
@@ -268,6 +269,11 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             REPORT TYPE: FULL PROFESSIONAL AUDIT (Comprehensive).
             
             STRUCTURE:
+            ## SECTION 0: REALITY CHECK (Visual Rating)
+            Based strictly on the video evidence, estimate the player's current REAL-WORLD level (Beginner, Intermediate, Advanced, Elite).
+            Compare this to their declared level ({player_level}).
+            If there is a gap, explain it kindly but clearly (e.g., "You selected Advanced, but your split-step consistency is currently Intermediate").
+            
             ## SECTION 1: COMPREHENSIVE AUDIT
             List 4-5 distinct areas where the player is losing efficiency (Biomechanics, Footwork, Tactics).
             
@@ -293,8 +299,8 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             {social_add_on}
             """
         
-        # 5. ANALYSIS PHASE
-        with st.spinner("🤖 Analyzing biomechanics & diagnosing archetype..." if "English" in selected_lang else "🤖 Analisando biomecânica e diagnosticando..."):
+        # GENERATION
+        with st.spinner("🤖 Analyzing..." if "English" in selected_lang else "🤖 Analisando..."):
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[video_file, full_prompt]
