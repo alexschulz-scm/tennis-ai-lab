@@ -160,33 +160,47 @@ class ProReport(FPDF):
 # --- HELPER FUNCTIONS ---
 
 def download_youtube_video(url):
-    """Downloads YouTube video to a local file so we can upload it to Gemini."""
+    """Downloads YouTube video with anti-blocking measures."""
     output_filename = "temp_video.mp4"
     
     # Remove old file if it exists
     if os.path.exists(output_filename):
         os.remove(output_filename)
     
-    # Configuration to download a single MP4 file
+    # 🛡️ STEALTH CONFIGURATION
     ydl_opts = {
-        'format': 'best[ext=mp4]', 
+        'format': 'best[ext=mp4]/best', 
         'outtmpl': output_filename,
         'quiet': True,
         'no_warnings': True,
+        # Spoof a real browser to bypass 403 errors
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
     
     status_msg = st.empty()
-    status_msg.info("⏳ Downloading video from YouTube... (This may take 10-20 seconds)")
+    status_msg.info("⏳ Downloading from YouTube (Attempting to bypass blocks)...")
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        status_msg.success("✅ Download complete! Sending to Gemini...")
-        time.sleep(1) 
-        status_msg.empty() 
-        return output_filename
+        
+        # Verify file actually exists and has size
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
+            status_msg.success("✅ Download complete! Sending to Gemini...")
+            time.sleep(1) 
+            status_msg.empty() 
+            return output_filename
+        else:
+            raise Exception("File downloaded but is empty.")
+            
     except Exception as e:
-        status_msg.error(f"❌ Download failed: {e}")
+        status_msg.error(f"❌ YouTube blocked the download: {e}")
+        st.warning("💡 TIP: YouTube blocks cloud servers aggressively. If this fails, please download the video to your phone/laptop manually and use the 'Upload Video' tab instead.")
         return None
 
 def clean_for_pdf(text):
