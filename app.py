@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import time
 import tempfile
+import re
+import qrcode
 from dotenv import load_dotenv
 from google import genai
 from fpdf import FPDF
@@ -30,7 +32,9 @@ TRANSLATIONS = {
         "ui_notes_label": "Context / Notes:",
         "ui_focus_label": "Focus Areas:",
         "levels": ["Junior / Beginner", "High School / Club", "College / Advanced", "Professional"],
-        "focus_areas": ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"]
+        "focus_areas": ["Biomechanics (Technique)", "Tactical Choices", "Footwork & Movement", "Mental Game"],
+        "pdf_watch_video": "▶️ WATCH DRILL VIDEO (Click Here)",
+        "pdf_scan_qr": "Scan to watch on phone"
     },
     "Portuguese": {
         "ui_title": "🎾 Tennis AI Lab",
@@ -51,7 +55,9 @@ TRANSLATIONS = {
         "ui_notes_label": "Contexto / Notas:",
         "ui_focus_label": "Áreas de Foco:",
         "levels": ["Iniciante / Junior", "Clube / Amador", "Avançado / Universitário", "Profissional"],
-        "focus_areas": ["Biomecânica (Técnica)", "Tática e Decisão", "Jogos de Perna (Footwork)", "Mental"]
+        "focus_areas": ["Biomecânica (Técnica)", "Tática e Decisão", "Jogos de Perna (Footwork)", "Mental"],
+        "pdf_watch_video": "▶️ ASSISTIR VÍDEO DO DRILL (Clique Aqui)",
+        "pdf_scan_qr": "Escaneie para ver no celular"
     }
 }
 
@@ -61,6 +67,7 @@ class ProReport(FPDF):
         super().__init__()
         self.player_name = player_name
         self.level = level
+        self.lang_key = lang_key
         self.labels = TRANSLATIONS[lang_key]
         self.report_type = report_type
         self.header_text = "TENNIS AI LAB | " + ("Quick Fix" if "Quick" in report_type or "Rápida" in report_type else "Full Audit")
@@ -105,7 +112,7 @@ class ProReport(FPDF):
         self.set_x(45)
         self.cell(120, 8, f"Date: {time.strftime('%d/%m/%Y')}", align='C', new_x="LMARGIN", new_y="NEXT")
 
-    def chapter_body(self, text):
+    def chapter_body(self, text, video_link=None):
         self.add_page()
         self.set_text_color(50, 50, 50)
         self.set_font('Helvetica', '', 11)
@@ -117,6 +124,10 @@ class ProReport(FPDF):
         lines = text.split('\n')
         for line in lines:
             safe_line = clean_for_pdf(line).strip()
+            # Skip the search query line in the printed text
+            if "SEARCH_QUERY:" in safe_line:
+                continue
+                
             if not safe_line:
                 self.ln(4)
                 continue
@@ -137,6 +148,51 @@ class ProReport(FPDF):
                 self.set_x(20)
                 self.multi_cell(0, 6, safe_line)
 
+        # --- ADD VIDEO LINK & QR CODE SECTION ---
+        if video_link:
+            self.add_page()
+            self.set_fill_color(0, 51, 102)
+            self.rect(0, 0, 210, 297, 'F')
+            
+            # Title
+            self.set_y(60)
+            self.set_font('Helvetica', 'B', 24)
+            self.set_text_color(255, 255, 255)
+            self.cell(0, 10, "TRAINING RESOURCES", align='C', new_x="LMARGIN", new_y="NEXT")
+            
+            # 1. Clickable Link (Blue Button style)
+            self.ln(20)
+            self.set_font('Helvetica', 'B', 14)
+            self.set_text_color(100, 200, 255) # Light Blue
+            # Add Underline
+            self.cell(0, 10, clean_for_pdf(self.labels["pdf_watch_video"]), align='C', link=video_link, new_x="LMARGIN", new_y="NEXT")
+            
+            # 2. QR Code Image
+            self.ln(10)
+            # Generate QR
+            qr = qrcode.QRCode(box_size=10, border=4)
+            qr.add_data(video_link)
+            qr.make(fit=True)
+            img = qr.make_image(fill='black', back_color='white')
+            
+            # Save temp QR
+            img_path = "temp_qr.png"
+            img.save(img_path)
+            
+            # Center the image (A4 width is 210mm. QR is roughly 80mm wide)
+            x_pos = (210 - 80) / 2
+            self.image(img_path, x=x_pos, w=80)
+            
+            # Caption
+            self.ln(5)
+            self.set_font('Helvetica', '', 12)
+            self.set_text_color(200, 200, 200)
+            self.cell(0, 10, clean_for_pdf(self.labels["pdf_scan_qr"]), align='C')
+            
+            # Cleanup
+            if os.path.exists(img_path):
+                os.remove(img_path)
+
 def clean_for_pdf(text):
     replacements = {
         "–": "-", "—": "--", "“": '"', "”": '"', 
@@ -147,10 +203,10 @@ def clean_for_pdf(text):
         text = text.replace(char, replacement)
     return text.encode('latin-1', 'replace').decode('latin-1')
 
-def create_pdf(text, name, level, lang, r_type):
+def create_pdf(text, name, level, lang, r_type, video_link):
     pdf = ProReport(name, level, lang, r_type)
     pdf.create_cover_page()
-    pdf.chapter_body(text)
+    pdf.chapter_body(text, video_link)
     return pdf.output(dest='S')
 
 # --- MAIN APP ---
@@ -200,34 +256,32 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.stop()
 
     try:
-        # API KEY & CLIENT
+        # API & CLIENT
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             api_key = st.secrets["GOOGLE_API_KEY"]
-            
         client = genai.Client(api_key=api_key)
         
         # UPLOAD
         with st.spinner("Uploading video to Google AI..."):
             video_file = client.files.upload(file=video_content)
         
-        # PROCESSING LOOP
+        # PROCESSING
         status_box = st.empty()
         while video_file.state.name == "PROCESSING":
             if "English" in selected_lang:
-                status_box.info("⏳ AI is watching the video... (This usually takes 10-20 seconds)")
+                status_box.info("⏳ AI is watching the video... (10-20s)")
             else:
-                status_box.info("⏳ A IA está assistindo ao vídeo... (Isso leva 10-20 segundos)")
+                status_box.info("⏳ A IA está assistindo ao vídeo... (10-20s)")
             time.sleep(2)
             video_file = client.files.get(name=video_file.name)
         
         if video_file.state.name == "FAILED":
             st.error("Video processing failed.")
             st.stop()
-            
         status_box.empty()
 
-        # SOCIAL MEDIA ADD-ON
+        # PROMPT SETUP
         social_add_on = ""
         if creator_mode:
             social_add_on = """
@@ -235,7 +289,15 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Identify 2 "Viral Moments" with Timestamps, Hooks, and Captions.
             """
 
-        # 1. QUICK FIX MODE
+        # INSTRUCTION FOR SEARCH TERM
+        search_instruction = """
+        FINAL STEP:
+        At the very end of your response, on a new line, output a YouTube Search Query for the specific drill you recommended.
+        Format it exactly like this:
+        SEARCH_QUERY: [Tennis Drill for X]
+        (Keep it short, e.g., "Tennis Drill Topspin Forehand" or "Tennis Split Step Drill")
+        """
+
         if "Quick" in report_type or "Rápida" in report_type:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
@@ -248,15 +310,13 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             REPORT TYPE: QUICK FIX (Actionable, Short, Precise).
             
             STRUCTURE:
-            1. **THE MAIN ISSUE:** Identify the ONE technical flaw causing the most trouble. Be direct.
-            2. **THE FIX (Drill):** Give one specific drill to fix it today.
-            3. **THE CUE:** A 3-word mental trigger to use on court.
+            1. **THE MAIN ISSUE:** Identify the ONE technical flaw.
+            2. **THE FIX (Drill):** Give one specific drill.
+            3. **THE CUE:** A 3-word mental trigger.
             
-            Keep it under 300 words. No fluff.
+            {search_instruction}
             {social_add_on}
             """
-            
-        # 2. FULL AUDIT MODE (With Reality Check & Archetype)
         else:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
@@ -269,38 +329,29 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             REPORT TYPE: FULL PROFESSIONAL AUDIT (Comprehensive).
             
             STRUCTURE:
-            ## SECTION 0: REALITY CHECK (Visual Rating)
-            Based strictly on the video evidence, estimate the player's current REAL-WORLD level (Beginner, Intermediate, Advanced, Elite).
-            Compare this to their declared level ({player_level}).
-            If there is a gap, explain it kindly but clearly (e.g., "You selected Advanced, but your split-step consistency is currently Intermediate").
+            ## SECTION 0: REALITY CHECK
+            Estimate REAL-WORLD level vs Declared Level.
             
             ## SECTION 1: COMPREHENSIVE AUDIT
-            List 4-5 distinct areas where the player is losing efficiency (Biomechanics, Footwork, Tactics).
+            List 4-5 distinct areas of inefficiency.
             
-            ## SECTION 2: BIOMECHANICAL ARCHETYPE (The Diagnosis)
-            Analyze the player's Grip, Swing Path, and Stance.
-            Match them to ONE of these Pro Archetypes and explain WHY:
-            - **The Fluid Attacker (e.g., Federer):** Eastern/Semi-Western grip, smooth kinetic chain.
-            - **The Modern Power Player (e.g., Sinner/Alcaraz):** Semi-Western, explosive hip rotation, open stance.
-            - **The Spin Grinder (e.g., Nadal/Ruud):** Extreme Western, heavy topspin, high clearance.
-            - **The Counter-Puncher (e.g., Djokovic/Medvedev):** Efficient redirection, incredible balance.
-            
-            Tell the user: "Your Biomechanical Archetype closest match is: [PRO NAME]" and explain the similarity.
+            ## SECTION 2: BIOMECHANICAL ARCHETYPE
+            Match to Pro Archetype (Federer, Sinner, Nadal, Djokovic) and explain why.
             
             ## SECTION 3: THE PRIORITY FIX
-            "Based on your archetype and the audit, your #1 priority to fix is..."
+            Identify #1 priority.
             
             ## SECTION 4: DIDACTIC LESSON PLAN
-            Provide a detailed plan to fix that priority issue:
-            - **The Concept:** Physics explanation.
-            - **The Drill:** Specific drill (reps/sets).
+            - **The Concept:** Physics.
+            - **The Drill:** Specific drill.
             - **The Cue:** Mental phrase.
             
+            {search_instruction}
             {social_add_on}
             """
         
-        # GENERATION
-        with st.spinner("🤖 Analyzing..." if "English" in selected_lang else "🤖 Analisando..."):
+        # GENERATE
+        with st.spinner("🤖 Analyzing & Generating Drill Link..."):
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[video_file, full_prompt]
@@ -309,8 +360,21 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.success(t["ui_success"])
         st.markdown(response.text)
         
+        # EXTRACT SEARCH TERM & CREATE LINK
+        video_link = None
+        match = re.search(r"SEARCH_QUERY:\s*(.*)", response.text, re.IGNORECASE)
+        if match:
+            query = match.group(1).strip()
+            # Create a YouTube Search URL
+            clean_query = query.replace(" ", "+")
+            video_link = f"https://www.youtube.com/results?search_query={clean_query}"
+        else:
+            # Fallback if AI forgets
+            video_link = "https://www.youtube.com/results?search_query=tennis+training+drills"
+
+        # PDF GENERATION
         try:
-            pdf_bytes = create_pdf(response.text, player_description, player_level, selected_lang, report_type)
+            pdf_bytes = create_pdf(response.text, player_description, player_level, selected_lang, report_type, video_link)
             st.download_button(t["ui_download_btn"], data=bytes(pdf_bytes), file_name="analysis_report.pdf", mime="application/pdf")
         except Exception as e:
             st.error(f"PDF Error: {e}")
