@@ -200,21 +200,36 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.stop()
 
     try:
-        client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+        # 1. API KEY LOGIC (Safe for Cloud & Local)
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            api_key = st.secrets["GOOGLE_API_KEY"]
+            
+        client = genai.Client(api_key=api_key)
         
-        with st.spinner("Uploading to AI..."):
+        # 2. UPLOAD PHASE
+        with st.spinner("Uploading video to Google AI..."):
             video_file = client.files.upload(file=video_content)
         
+        # 3. PROCESSING PHASE (The Missing Progress Indicator!)
+        status_box = st.empty()
+        
         while video_file.state.name == "PROCESSING":
+            if "English" in selected_lang:
+                status_box.info("⏳ AI is watching the video... (This usually takes 10-20 seconds)")
+            else:
+                status_box.info("⏳ A IA está assistindo ao vídeo... (Isso leva 10-20 segundos)")
+            
             time.sleep(2)
             video_file = client.files.get(name=video_file.name)
         
         if video_file.state.name == "FAILED":
-            st.error("Processing failed.")
+            st.error("Video processing failed.")
             st.stop()
+            
+        status_box.empty() # Clear message when done
 
-        # --- "SCHULZ ALGORITHM" PROMPTS ---
-        
+        # 4. PROMPT GENERATION
         social_add_on = ""
         if creator_mode:
             social_add_on = """
@@ -222,7 +237,6 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Identify 2 "Viral Moments" with Timestamps, Hooks, and Captions.
             """
 
-        # 1. QUICK FIX MODE
         if "Quick" in report_type or "Rápida" in report_type:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
@@ -242,8 +256,6 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             Keep it under 300 words. No fluff.
             {social_add_on}
             """
-            
-        # 2. FULL AUDIT MODE (With Hidden Pro Match)
         else:
             full_prompt = f"""
             You are an elite tennis performance coach (ATP/WTA level).
@@ -281,7 +293,8 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
             {social_add_on}
             """
         
-        with st.spinner("🤖 Analyzing biomechanics & diagnosing archetype..."):
+        # 5. ANALYSIS PHASE
+        with st.spinner("🤖 Analyzing biomechanics & diagnosing archetype..." if "English" in selected_lang else "🤖 Analisando biomecânica e diagnosticando..."):
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[video_file, full_prompt]
