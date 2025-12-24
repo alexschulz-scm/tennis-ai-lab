@@ -3,14 +3,17 @@ import os
 import time
 import tempfile
 import re
-import qrcode
+import json
 from dotenv import load_dotenv
-from google import genai
 from tools.report_generator import create_pdf, TRANSLATIONS
 from tools.video_editor import create_viral_clip
-from tools.report_generator import create_pdf
-import json # We need this to parse the AI's data
 
+# --- NEW IMPORT: THE AGENT ---
+try:
+    from agent.graph import app_graph
+except ImportError:
+    st.error("⚠️ Could not find the Agent! Make sure you created the 'agent' folder with 'graph.py' inside.")
+    st.stop()
 
 # 1. Load Environment Variables
 load_dotenv(override=True)
@@ -20,7 +23,8 @@ if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
 if "video_path" not in st.session_state:
     st.session_state["video_path"] = None
-
+if "email_draft" not in st.session_state:     # <--- NEW: Init Email State
+    st.session_state["email_draft"] = None
 
 # --- MAIN APP ---
 st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
@@ -63,110 +67,68 @@ with st.sidebar:
     player_notes = st.text_area(t["ui_notes_label"])
     analysis_focus = st.multiselect(t["ui_focus_label"], t["focus_areas"], default=[t["focus_areas"][0]])
 
-# --- LOGIC: ANALYZE BUTTON (Fetches & Saves to Memory) ---
+# --- LOGIC: ANALYZE BUTTON ---
 if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
     if not video_content or not player_description:
         st.warning(t["ui_warning_video"] if not video_content else t["ui_warning_desc"])
         st.stop()
 
     try:
-        # API & CLIENT
+        # 1. Check API Key
         api_key = os.environ.get("GOOGLE_API_KEY")
-        if api_key: api_key = api_key.strip() # Safety strip
-        
-        if not api_key:
-            api_key = st.secrets.get("GOOGLE_API_KEY") # Use .get() to avoid errors if missing
-            
+        if not api_key: api_key = st.secrets.get("GOOGLE_API_KEY")
         if not api_key:
             st.error("❌ API Key missing.")
             st.stop()
+        
+        # 2. Prepare Inputs
+        agent_inputs = {
+            "video_path": video_content,
+            "player_description": player_description,
+            "player_level": player_level,
+            "player_notes": player_notes,
+            "focus_areas": analysis_focus,
+            "report_type": report_type,
+            "language": selected_lang,
+            "creator_mode": creator_mode
+        }
 
-        client = genai.Client(api_key=api_key)
+        # 3. RUN THE AGENT
+        with st.spinner("🤖 Agent is working... (Uploading & Analyzing)"):
+            result_state = app_graph.invoke(agent_inputs)
+            
+        # 4. Extract Results
+        final_text = result_state.get("analysis_text", "")
+        final_email = result_state.get("email_draft", "")  # <--- NEW: Get Email
         
-        # UPLOAD
-        with st.spinner("Uploading video to Google AI..."):
-            video_file = client.files.upload(file=video_content)
-        
-        # WAIT FOR PROCESSING
-        msg_processing = "⏳ AI is watching... (10-20s)" if "English" in selected_lang else "⏳ A IA está assistindo... (10-20s)"
-        with st.spinner(msg_processing):
-            while video_file.state.name == "PROCESSING":
-                time.sleep(2)
-                video_file = client.files.get(name=video_file.name)
-        
-        if video_file.state.name == "FAILED":
-            st.error("Video processing failed.")
+        if not final_text:
+            st.error("Agent finished but returned no text.")
+            st.stop()
+            
+        if "Error:" in final_text:
+            st.error(final_text)
             st.stop()
 
-        # PROMPT SETUP (Same logic as before)
-        social_add_on = ""
-        if creator_mode:
-            social_add_on = """
-            --- SOCIAL MEDIA PACK ---
-            Identify 2 "Viral Moments" with Timestamps, Hooks, and Captions.
-            """
-
-        search_instruction = """
-        FINAL STEP:
-        At the very end, output a YouTube Search Query on a new line:
-        SEARCH_QUERY: [Tennis Drill for X]
-        """
-
-        # Build Prompt based on Report Type
-        report_label = "QUICK FIX" if ("Quick" in report_type or "Rápida" in report_type) else "FULL AUDIT"
-        full_prompt = f"""
-        You are an elite tennis performance coach.
-        TARGET: {player_description} | LEVEL: {player_level}
-        REPORT TYPE: {report_label}
+        # 5. Save to Session State
+        st.session_state["analysis_result"] = final_text
+        st.session_state["email_draft"] = final_email      # <--- NEW: Save Email
+        st.session_state["video_path"] = video_content
         
-        Analyze the video and provide a structured report.
-        {social_add_on}
-        {search_instruction}
-
-        BONUS: Identify TWO specific moments in the video:
-        1. "best_shot": The single best execution (good form/result).
-        2. "fix_shot": The clearest example of the MAIN ISSUE you identified in the report.
-
-        Return the timestamps in this exact JSON format at the very end:
-        JSON_DATA: {{
-            "best_shot": {{"start": 12, "end": 18, "reason": "Great extension"}},
-            "fix_shot": {{"start": 45, "end": 50, "reason": "Late preparation example"}}
-        }}
-        """
-
-        # GENERATE
-        with st.spinner("🤖 Analyzing biomechanics..."):
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[video_file, full_prompt]
-            )
-
-        # --- CRITICAL CHANGE: SAVE TO SESSION STATE ---
-        st.session_state["analysis_result"] = response.text
-        st.session_state["video_path"] = video_content  # Save path so we can edit it later
-        
-        # Force a rerun so the "Display Logic" below picks it up immediately
         st.rerun()
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Agent Error: {e}")
 
 
-# --- LOGIC: DISPLAY RESULTS (Reads from Memory) ---
+# --- LOGIC: DISPLAY RESULTS ---
 if st.session_state["analysis_result"]:
     raw_text = st.session_state["analysis_result"]
     saved_video_path = st.session_state["video_path"]
     
-    # 🧹 CLEANING STEP: Remove technical data
+    # 🧹 CLEANING
     clean_text = raw_text
-    
-    # 1. Remove JSON Block (and any surrounding stars/newlines)
     clean_text = re.sub(r"\**JSON_DATA:?.*", "", clean_text, flags=re.DOTALL)
-    
-    # 2. Remove Search Query Line (Catching the leading stars too!)
     clean_text = re.sub(r"\**SEARCH_QUERY:?.*", "", clean_text, flags=re.IGNORECASE)
-    
-    # 3. Final Polish (Remove extra newlines left behind)
     clean_text = clean_text.strip()
 
     st.success(t["ui_success"])
@@ -190,7 +152,20 @@ if st.session_state["analysis_result"]:
     except Exception as e:
         st.error(f"PDF Error: {e}")
 
-    # 2. SMART VIDEO ANALYSIS (Side-by-Side Reels)
+    # 📧 EMAIL ASSISTANT (Placed after PDF button)
+    if st.session_state.get("email_draft"):
+        with st.expander("📧 Email Draft (Copy & Paste)", expanded=False):
+            # We add a dynamic key based on text length to FORCE Streamlit to refresh the widget
+            # whenever the text changes.
+            st.text_area(
+                "Client Email", 
+                value=st.session_state["email_draft"], 
+                height=300,
+                key=f"email_output_{len(raw_text)}" 
+            )
+            st.caption("Tip: Copy this into your mail app and attach the PDF + Video.")
+
+    # 2. SMART VIDEO ANALYSIS
     match_json = re.search(r"JSON_DATA:\s*({.*})", raw_text, re.DOTALL)
     if match_json:
         try:
