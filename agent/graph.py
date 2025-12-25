@@ -7,11 +7,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from agent.state import AgentState
 from google import genai
 
-# --- NODE 1: THE ANALYST (Stays the Same) ---
+# --- NODE 1: THE ANALYST (Strict Calibration Version) ---
 def analyze_video(state: AgentState):
     print("--- 🧠 ANALYZING VIDEO ---")
     
-    # [Prompt Logic Stays Exactly the Same...]
+    # [Social Media & Search Setup remains the same...]
     social_add_on = ""
     if state.get('creator_mode', False):
         social_add_on = """
@@ -27,26 +27,49 @@ def analyze_video(state: AgentState):
 
     r_type = state['report_type']
     report_label = "QUICK FIX" if ("Quick" in r_type or "Rápida" in r_type) else "FULL AUDIT"
-    
     lang_instruction = "Respond in English" if "English" in state['language'] else "Respond in Portuguese"
 
+    # --- THE NEW PROMPT ---
     full_prompt = f"""
     You are an elite tennis performance coach.
+    
+    --- INPUT DATA ---
     TARGET: {state['player_description']}
-    LEVEL: {state['player_level']}
+    DECLARED LEVEL: {state['player_level']}
     NOTES: {state['player_notes']}
     FOCUS: {', '.join(state['focus_areas'])}
     LANGUAGE: {lang_instruction}
     
-    REPORT TYPE: {report_label}
+    --- INSTRUCTIONS ---
+    You must output the report in the following STRICT sections. Do not skip any.
     
-    Analyze the video and provide a structured report.
+    ### PHASE 1: CALIBRATION (Internal)
+    First, determine the player's handedness (Right vs Left). 
+    *CRITICAL:* If the video is selfie-mode/mirrored, adjust your analysis so you do not confuse Forehands with Backhands. 
+    Look at the grip: 
+    - One hand on bottom = Forehand (usually).
+    - Two hands = Backhand (usually).
+    
+    ### PHASE 2: THE REALITY CHECK (Output this First)
+    Start your response with a section titled "## 🎯 Reality Check".
+    1. State the **Observed Level** based on visual evidence.
+    2. Compare it to the **Declared Level** ({state['player_level']}).
+    3. Explain the verdict (e.g., "Technique is Advanced, but consistency is Intermediate").
+    
+    ### PHASE 3: SHOT LOG
+    Create a bulleted list of the shots you see to prove you watched the whole video.
+    Format: "- [Timestamp]: [Stroke Type] - [Result/Quality]"
+    
+    ### PHASE 4: TECHNICAL ANALYSIS
+    Provide the {report_label} analysis. Focus on the biomechanics.
+    
     {social_add_on}
     {search_instruction}
 
-    BONUS: Identify TWO specific moments in the video:
-    1. "best_shot": The single best execution (good form/result).
-    2. "fix_shot": The clearest example of the MAIN ISSUE you identified in the report.
+    --- METADATA ---
+    Identify TWO specific moments:
+    1. "best_shot": The single best execution.
+    2. "fix_shot": The clearest example of the MAIN ISSUE.
 
     Return the timestamps in this exact JSON format at the very end:
     JSON_DATA: {{
@@ -55,11 +78,14 @@ def analyze_video(state: AgentState):
     }}
     """
     
+    # [API Call remains the same...]
     api_key = os.environ.get("GOOGLE_API_KEY")
     client = genai.Client(api_key=api_key)
     
+    # Upload Video
     video_file = client.files.upload(file=state['video_path'])
     
+    # Wait for processing
     while video_file.state.name == "PROCESSING":
         time.sleep(2)
         video_file = client.files.get(name=video_file.name)
@@ -67,11 +93,13 @@ def analyze_video(state: AgentState):
     if video_file.state.name == "FAILED":
         return {"analysis_text": "Error: Video processing failed."}
 
+    # Generate
     response = client.models.generate_content(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.0-flash-exp", 
         contents=[video_file, full_prompt]
     )
     
+    # [Parsing Logic remains the same...]
     raw_text = response.text
     structured_data = {}
     
