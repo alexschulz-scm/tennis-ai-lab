@@ -1,12 +1,14 @@
 [server]
 maxUploadSize = 500
+# cleaner URL handling
+enableCORS = false
 
 [theme]
-# The "Court Lens" Color Palette
-primaryColor = "#CCFF00"      # Neon Tennis Yellow (Buttons & Highlights)
-backgroundColor = "#0E1117"   # Deep Dark Grey (Main Background)
-secondaryBackgroundColor = "#1E2129" # Slightly lighter grey (Sidebar)
-textColor = "#FAFAFA"         # White (Text)
+# US Open Blue - Great contrast with white text
+primaryColor = "#0065BD"    
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1E2129"
+textColor = "#FAFAFA" 
 font = "sans serif"
 
 [client]
@@ -16,7 +18,3 @@ toolbarMode = "viewer"
 [browser]
 # Hides the little "Running..." man in the corner
 gatherUsageStats = false
-
-[server]
-# cleaner URL handling
-enableCORS = false
