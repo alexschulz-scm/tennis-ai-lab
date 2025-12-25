@@ -35,7 +35,7 @@ def create_watermark_image(text, width, height):
         font = ImageFont.load_default()
 
     # Text Settings
-    text_content = text.upper()
+    text_content = "COURT LENS AI"
     
     # Calculate text position (Centered horizontally, near bottom)
     # Get bounding box of text

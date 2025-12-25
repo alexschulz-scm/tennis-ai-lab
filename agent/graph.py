@@ -102,7 +102,7 @@ def draft_email(state: AgentState):
     
     # --- FIX IS HERE: We now inject state['analysis_text'] ---
     prompt = f"""
-    You are a friendly but professional tennis coach named "Schulz AI".
+    You are a friendly but professional tennis coach named "Court Lens AI".
     
     CONTEXT:
     You just analyzed a video for a player.

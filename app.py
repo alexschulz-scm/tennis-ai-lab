@@ -27,7 +27,7 @@ if "email_draft" not in st.session_state:     # <--- NEW: Init Email State
     st.session_state["email_draft"] = None
 
 # --- MAIN APP ---
-st.set_page_config(page_title="Tennis AI Lab", page_icon="🎾", layout="wide")
+st.set_page_config(page_title="Court Lens AI", page_icon="🎾", layout="wide")
 
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
@@ -45,7 +45,9 @@ with st.sidebar:
     if creator_mode:
         st.caption("✅ Reports will include Instagram/Reels suggestions.")
 
-st.title(t["ui_title"])
+# UPDATE: Hardcoded Brand Header (Overrides translation file for now)
+st.title("COURT LENS AI")
+st.caption("Powered by Schulz Creative Media") # Optional: Keep the agency link subtle
 st.markdown(t["ui_subtitle"])
 
 video_content = None
