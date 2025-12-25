@@ -89,7 +89,7 @@ def create_viral_clip(video_path, start_time, end_time):
         
         # --- NEW STEP: WATERMARK OVERLAY ---
         # Generate the text image
-        watermark_array = create_watermark_image("AI Generated Analysis", 1080, 1920)
+        watermark_array = create_watermark_image("COURT LENS A", 1080, 1920)
         
         # Create a MoviePy clip from that image
         txt_clip = ImageClip(watermark_array).set_duration(final_clip.duration)
