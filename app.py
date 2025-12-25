@@ -29,6 +29,45 @@ if "email_draft" not in st.session_state:     # <--- NEW: Init Email State
 # --- MAIN APP ---
 st.set_page_config(page_title="Court Lens AI", page_icon="🎾", layout="wide")
 
+# --- 🔒 GATEKEEPER LOGIC (Insert after st.set_page_config) ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+def check_password():
+    """Returns True if the user is authenticated, False otherwise."""
+    if st.session_state.authenticated:
+        return True
+
+    # Title for the Lock Screen
+    st.title("🔒 Court Lens AI")
+    st.markdown("### Private Beta Access")
+    st.caption("Please enter your invitation code to access the platform.")
+    
+    # Password Input
+    password_input = st.text_input("Access Code", type="password")
+    
+    if st.button("Login"):
+        # Retrieve the real password from Secrets (Cloud) or Env (Local)
+        # Default fallback is "tennis2025" if you forget to set it
+        correct_password = os.environ.get("ACCESS_CODE") 
+        if not correct_password:
+             correct_password = st.secrets.get("ACCESS_CODE", "tennis2025")
+
+        if password_input == correct_password:
+            st.session_state.authenticated = True
+            st.success("✅ Access Granted")
+            time.sleep(1) # Brief pause to show success message
+            st.rerun() # Reload the app to show the dashboard
+        else:
+            st.error("❌ Invalid Code. Please contact Schulz Creative Media.")
+            
+    return False
+
+# 🛑 STOP HERE if not authenticated
+if not check_password():
+    st.stop()
+# -----------------------------------------------------------
+
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
