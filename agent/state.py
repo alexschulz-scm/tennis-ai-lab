@@ -9,11 +9,14 @@ class AgentState(TypedDict):
     video_path: str
     player_description: str
     player_level: str
+    player_notes: str
     focus_areas: List[str]
+    handedness: str
+    stroke_type: str
     report_type: str
     language: str
-    player_notes: str
     creator_mode: bool
+    dev_mode: bool           # <--- THIS MUST BE HERE
     
     # INTERMEDIATE DATA (Created by AI)
     analysis_text: Optional[str] = None

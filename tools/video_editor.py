@@ -15,6 +15,22 @@ import numpy as np
 import tempfile
 import os
 
+def extract_frame(video_path, timestamp, output_filename):
+    """Saves a single frame from the video as a JPG."""
+    try:
+        with VideoFileClip(video_path) as clip:
+            # Safety Check: Ensure timestamp is within video limits
+            if timestamp > clip.duration:
+                timestamp = clip.duration / 2
+            if timestamp < 0:
+                timestamp = 1
+                
+            clip.save_frame(output_filename, t=timestamp)
+            return output_filename
+    except Exception as e:
+        print(f"Error extracting frame: {e}")
+        return None
+
 def create_watermark_image(text, width, height):
     """
     Creates a transparent PNG image with text using purely Python (Pillow).
