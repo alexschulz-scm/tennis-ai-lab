@@ -134,41 +134,58 @@ def create_viral_clip(video_path, start_time, end_time):
 
 def normalize_input_video(input_path):
     """
-    Converts iPhone/HEVC videos to standard H.264 MP4 
-    so OpenCV and web browsers can read them.
+    Converts & Compresses video to standard 720p MP4.
+    This fixes iPhone HEVC issues and reduces file size for the AI.
     """
     try:
-        # Check if we can read it with OpenCV
-        cap = cv2.VideoCapture(input_path)
-        if not cap.isOpened():
-            print("⚠️ OpenCV cannot open video. Converting...")
-            needs_conversion = True
-        else:
-            # Read one frame to be sure
-            ret, frame = cap.read()
-            if not ret:
-                print("⚠️ OpenCV cannot read frames. Converting...")
-                needs_conversion = True
-            else:
-                needs_conversion = False
-        cap.release()
-
-        # If it works, just return the original path
-        if not needs_conversion:
-            return input_path
-
-        # If we need to convert:
-        print("🔄 Converting iPhone/HEVC video to Standard MP4...")
-        output_path = input_path.replace(".mp4", "_fixed.mp4").replace(".mov", "_fixed.mp4")
+        print(f"🔄 Checking video: {input_path}")
         
+        # 1. Define Output Path
+        output_path = input_path.rsplit(".", 1)[0] + "_fixed.mp4"
+        
+        # 2. Load Clip
         clip = VideoFileClip(input_path)
-        # Write to H.264 (Standard format)
-        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        
+        # 3. Check Logic: Convert if iPhone (HEVC) OR if too big (4K)
+        # We always convert 'mov' to 'mp4' to be safe.
+        is_mov = input_path.lower().endswith(".mov")
+        is_huge = clip.h > 1080
+        
+        # If it's already a standard MP4 and reasonable size, skip
+        if not is_mov and not is_huge and clip.filename.lower().endswith(".mp4"):
+             # Optional: Double check opencv readability
+             cap = cv2.VideoCapture(input_path)
+             if cap.isOpened():
+                 ret, _ = cap.read()
+                 cap.release()
+                 if ret:
+                     clip.close()
+                     return input_path
+
+        print("⚡ Compressing & Normalizing Video (720p)...")
+        
+        # 4. Resize to 720p height (maintains aspect ratio) if larger
+        if clip.h > 720:
+            clip = clip.resize(height=720)
+            
+        # 5. Write to Standard H.264 MP4
+        # 'preset="ultrafast"' speeds up the cloud processing significantly
+        clip.write_videofile(
+            output_path, 
+            codec="libx264", 
+            audio_codec="aac", 
+            preset="ultrafast",
+            temp_audiofile='temp-audio.m4a', 
+            remove_temp=True,
+            verbose=False, 
+            logger=None
+        )
         clip.close()
         
-        print(f"✅ Conversion Complete: {output_path}")
+        print(f"✅ Video Normalized: {output_path}")
         return output_path
 
     except Exception as e:
-        print(f"❌ Conversion Failed: {e}")
-        return input_path # Return original as fallback
+        print(f"❌ Normalization Failed: {e}")
+        # Fallback: Return original path so the app doesn't crash
+        return input_path

@@ -163,17 +163,23 @@ video_content = None
 uploaded_file = st.file_uploader(t["ui_upload_label"], type=["mp4", "mov"])
 
 if uploaded_file:
-    # 1. Save the raw upload first
-    tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    # 1. Determine correct extension (.mov or .mp4)
+    file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+    if file_ext not in [".mp4", ".mov"]:
+        file_ext = ".mp4" # Default fallback
+        
+    # 2. Save with correct extension
+    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
     tfile.write(uploaded_file.read())
     raw_video_path = tfile.name
     tfile.close()
     
-    # 2. Normalize the video (Fix iPhone Codec)
-    with st.spinner("🔄 Processing video format..."):
+    # 3. Normalize (Compress & Fix Codec)
+    with st.spinner("🔄 Optimizing video for AI (Compressing)..."):
+        # This will now convert MOV -> MP4 and 4K -> 720p
         video_content = normalize_input_video(raw_video_path)
     
-    # 3. Show the FIXED video
+    # 4. Show the result
     st.video(video_content)
 
 with st.sidebar:
