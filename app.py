@@ -6,7 +6,7 @@ import re
 import json
 from dotenv import load_dotenv
 from tools.report_generator import create_pdf, TRANSLATIONS
-from tools.video_editor import create_viral_clip, extract_frame
+from tools.video_editor import create_viral_clip, extract_frame, normalize_input_video
 
 # --- KEEPING THE MODULAR ARCHITECTURE ---
 from agent.state import AgentState
@@ -163,11 +163,18 @@ video_content = None
 uploaded_file = st.file_uploader(t["ui_upload_label"], type=["mp4", "mov"])
 
 if uploaded_file:
-    st.video(uploaded_file)
+    # 1. Save the raw upload first
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
     tfile.write(uploaded_file.read())
-    video_content = tfile.name
+    raw_video_path = tfile.name
     tfile.close()
+    
+    # 2. Normalize the video (Fix iPhone Codec)
+    with st.spinner("🔄 Processing video format..."):
+        video_content = normalize_input_video(raw_video_path)
+    
+    # 3. Show the FIXED video
+    st.video(video_content)
 
 with st.sidebar:
     st.header(t["ui_sec_player"])

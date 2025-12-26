@@ -13,7 +13,10 @@ from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
+import cv2
 import os
+from moviepy.editor import VideoFileClip
+
 
 def extract_frame(video_path, timestamp, output_filename):
     """Saves a single frame from the video as a JPG."""
@@ -127,3 +130,45 @@ def create_viral_clip(video_path, start_time, end_time):
         video.close()
             
     return output_path
+
+
+def normalize_input_video(input_path):
+    """
+    Converts iPhone/HEVC videos to standard H.264 MP4 
+    so OpenCV and web browsers can read them.
+    """
+    try:
+        # Check if we can read it with OpenCV
+        cap = cv2.VideoCapture(input_path)
+        if not cap.isOpened():
+            print("⚠️ OpenCV cannot open video. Converting...")
+            needs_conversion = True
+        else:
+            # Read one frame to be sure
+            ret, frame = cap.read()
+            if not ret:
+                print("⚠️ OpenCV cannot read frames. Converting...")
+                needs_conversion = True
+            else:
+                needs_conversion = False
+        cap.release()
+
+        # If it works, just return the original path
+        if not needs_conversion:
+            return input_path
+
+        # If we need to convert:
+        print("🔄 Converting iPhone/HEVC video to Standard MP4...")
+        output_path = input_path.replace(".mp4", "_fixed.mp4").replace(".mov", "_fixed.mp4")
+        
+        clip = VideoFileClip(input_path)
+        # Write to H.264 (Standard format)
+        clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+        clip.close()
+        
+        print(f"✅ Conversion Complete: {output_path}")
+        return output_path
+
+    except Exception as e:
+        print(f"❌ Conversion Failed: {e}")
+        return input_path # Return original as fallback
