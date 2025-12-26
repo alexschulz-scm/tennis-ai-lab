@@ -163,24 +163,42 @@ video_content = None
 uploaded_file = st.file_uploader(t["ui_upload_label"], type=["mp4", "mov"])
 
 if uploaded_file:
-    # 1. Determine correct extension (.mov or .mp4)
-    file_ext = os.path.splitext(uploaded_file.name)[1].lower()
-    if file_ext not in [".mp4", ".mov"]:
-        file_ext = ".mp4" # Default fallback
+    # 1. Check if we already processed THIS file to avoid re-running optimization
+    # We use the filename and size as a unique signature
+    file_signature = f"{uploaded_file.name}_{uploaded_file.size}"
+    
+    if st.session_state.get("last_processed_file") != file_signature:
+        # --- NEW UPLOAD DETECTED: PROCESS IT ---
         
-    # 2. Save with correct extension
-    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
-    tfile.write(uploaded_file.read())
-    raw_video_path = tfile.name
-    tfile.close()
+        # A. Determine extension
+        file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+        if file_ext not in [".mp4", ".mov"]:
+            file_ext = ".mp4"
+            
+        # B. Save Raw File
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        tfile.write(uploaded_file.read())
+        raw_video_path = tfile.name
+        tfile.close()
+        
+        # C. Normalize (Compress & Fix Codec)
+        with st.spinner("🔄 Optimizing video for AI (Compressing)..."):
+            processed_path = normalize_input_video(raw_video_path)
+            
+        # D. Save to Session State
+        st.session_state["video_path"] = processed_path
+        st.session_state["last_processed_file"] = file_signature
+        
+        # Clear previous analysis results since it's a new video
+        st.session_state["analysis_result"] = None
+        st.session_state["email_draft"] = None
+
+    # 2. Use the cached path
+    video_content = st.session_state["video_path"]
     
-    # 3. Normalize (Compress & Fix Codec)
-    with st.spinner("🔄 Optimizing video for AI (Compressing)..."):
-        # This will now convert MOV -> MP4 and 4K -> 720p
-        video_content = normalize_input_video(raw_video_path)
-    
-    # 4. Show the result
-    st.video(video_content)
+    # 3. Show the video
+    if video_content:
+        st.video(video_content)
 
 with st.sidebar:
     st.header(t["ui_sec_player"])
