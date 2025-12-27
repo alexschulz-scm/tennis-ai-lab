@@ -2,6 +2,7 @@ import time
 import os
 import re
 import qrcode
+from PIL import Image
 from fpdf import FPDF
 
 TRANSLATIONS = {
@@ -75,6 +76,18 @@ class ProReport(FPDF):
         self.cell(0, 8, clean_for_pdf(self.header_text), align='L')
         self.ln(20)
 
+    # --- NEW: CALCULATE PROPORTIONAL DIMENSIONS ---
+    def get_fitted_dimensions(self, img_path, max_w, max_h):
+        try:
+            with Image.open(img_path) as img:
+                orig_w, orig_h = img.size
+            ratio = min(max_w / orig_w, max_h / orig_h)
+            new_w = orig_w * ratio
+            new_h = orig_h * ratio
+            return new_w, new_h
+        except:
+            return max_w, max_h * 0.56 # Fallback
+
     def create_cover_page(self, cover_img_path=None):
         self.add_page()
         self.set_fill_color(14, 17, 23)
@@ -91,9 +104,11 @@ class ProReport(FPDF):
         self.cell(0, 10, "COURT LENS AI ANALYSIS", align='C', new_x="LMARGIN", new_y="NEXT")
         
         if cover_img_path and os.path.exists(cover_img_path):
-            img_w = 140
-            img_h = 80
+            # --- UPDATED: Use Smart Resize ---
+            max_w, max_h = 140, 90
+            img_w, img_h = self.get_fitted_dimensions(cover_img_path, max_w, max_h)
             x_pos = (210 - img_w) / 2
+            
             self.image(cover_img_path, x=x_pos, y=80, w=img_w, h=img_h)
             self.set_draw_color(0, 101, 189)
             self.set_line_width(1)
@@ -167,12 +182,17 @@ class ProReport(FPDF):
                 triggers = ["The Bad", "Main Issue", "Correção", "Major Flaws"]
                 if any(trigger in safe_line for trigger in triggers):
                     self.ln(5)
-                    img_w = 120
-                    img_h = 67 
+                    
+                    # --- UPDATED: Use Smart Resize ---
+                    max_w, max_h = 120, 80 
+                    img_w, img_h = self.get_fitted_dimensions(fix_img_path, max_w, max_h)
+                    
                     x_pos = (210 - img_w) / 2
                     if self.get_y() + img_h > 270: self.add_page()
+                    
                     self.image(fix_img_path, x=x_pos, w=img_w, h=img_h)
                     self.ln(img_h + 2)
+                    
                     self.set_font('Helvetica', 'I', 9)
                     self.set_text_color(200, 0, 0)
                     self.cell(0, 5, "Visual Evidence: Area for Improvement", align='C', new_x="LMARGIN", new_y="NEXT")

@@ -15,24 +15,49 @@ import numpy as np
 import tempfile
 import cv2
 import os
-from moviepy.editor import VideoFileClip
+import subprocess
+import imageio_ffmpeg
+from moviepy.editor import VideoFileClip, vfx
 
+# 1. FIND FFMPEG AUTOMATICALLY
+# This finds the ffmpeg.exe that MoviePy installed, so you don't need to install it manually.
+FFMPEG_BINARY = imageio_ffmpeg.get_ffmpeg_exe()
 
-def extract_frame(video_path, timestamp, output_filename):
-    """Saves a single frame from the video as a JPG."""
+def get_rotation(video_path):
+    """
+    Robust Rotation Detector: Scans ALL metadata for rotation flags.
+    """
     try:
-        with VideoFileClip(video_path) as clip:
-            # Safety Check: Ensure timestamp is within video limits
-            if timestamp > clip.duration:
-                timestamp = clip.duration / 2
-            if timestamp < 0:
-                timestamp = 1
-                
-            clip.save_frame(output_filename, t=timestamp)
-            return output_filename
+        # Check if ffprobe is next to ffmpeg
+        ffprobe_binary = FFMPEG_BINARY.replace("ffmpeg", "ffprobe")
+        if not os.path.exists(ffprobe_binary):
+            # Fallback to system command if not found locally
+            ffprobe_binary = "ffprobe"
+
+        cmd = [
+            ffprobe_binary, 
+            "-v", "quiet", 
+            "-print_format", "json", 
+            "-show_streams", 
+            "-show_format", 
+            video_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        data = json.loads(result.stdout)
+
+        for stream in data.get('streams', []):
+            tags = stream.get('tags', {})
+            if 'rotate' in tags:
+                return int(float(tags['rotate']))
+            
+            side_data = stream.get('side_data_list', [])
+            for item in side_data:
+                if 'rotation' in item:
+                    return int(float(item['rotation']))
+        return 0
     except Exception as e:
-        print(f"Error extracting frame: {e}")
-        return None
+        print(f"⚠️ Rotation Detection Failed: {e}")
+        return 0
 
 def create_watermark_image(text, width, height):
     """
@@ -131,61 +156,74 @@ def create_viral_clip(video_path, start_time, end_time):
             
     return output_path
 
+def extract_frame(video_path, timestamp, output_path):
+    try:
+        cap = cv2.VideoCapture(video_path)
+        # Convert seconds to milliseconds
+        cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
+        ret, frame = cap.read()
+        if ret:
+            cv2.imwrite(output_path, frame)
+            cap.release()
+            return output_path
+        cap.release()
+        return None
+    except:
+        return None
 
 def normalize_input_video(input_path):
-    """
-    Converts & Compresses video to standard 720p MP4.
-    This fixes iPhone HEVC issues and reduces file size for the AI.
-    """
     try:
         print(f"🔄 Checking video: {input_path}")
-        
-        # 1. Define Output Path
         output_path = input_path.rsplit(".", 1)[0] + "_fixed.mp4"
         
-        # 2. Load Clip
-        clip = VideoFileClip(input_path)
+        # 1. Detect Rotation
+        rotation = get_rotation(input_path)
+        print(f"📐 Detected Rotation Flag: {rotation}°")
         
-        # 3. Check Logic: Convert if iPhone (HEVC) OR if too big (4K)
-        # We always convert 'mov' to 'mp4' to be safe.
-        is_mov = input_path.lower().endswith(".mov")
-        is_huge = clip.h > 1080
+        # 2. THE NUCLEAR FIX: HARD TRANSPOSE via FFmpeg
+        vf_command = ""
         
-        # If it's already a standard MP4 and reasonable size, skip
-        if not is_mov and not is_huge and clip.filename.lower().endswith(".mp4"):
-             # Optional: Double check opencv readability
-             cap = cv2.VideoCapture(input_path)
-             if cap.isOpened():
-                 ret, _ = cap.read()
-                 cap.release()
-                 if ret:
-                     clip.close()
-                     return input_path
+        if rotation == 90:
+            print("🔧 Hard-Fixing 90° Rotation (Transpose)...")
+            vf_command = "transpose=1" 
+        elif rotation == 180:
+            vf_command = "transpose=2,transpose=2"
+        elif rotation == 270:
+            vf_command = "transpose=2" 
 
-        print("⚡ Compressing & Normalizing Video (720p)...")
-        
-        # 4. Resize to 720p height (maintains aspect ratio) if larger
-        if clip.h > 720:
-            clip = clip.resize(height=720)
+        # Build the command
+        cmd = [
+            FFMPEG_BINARY,
+            "-y",               # Overwrite output
+            "-i", input_path,   # Input
+            "-c:v", "libx264",  # Video Codec
             
-        # 5. Write to Standard H.264 MP4
-        # 'preset="ultrafast"' speeds up the cloud processing significantly
-        clip.write_videofile(
-            output_path, 
-            codec="libx264", 
-            audio_codec="aac", 
-            preset="ultrafast",
-            temp_audiofile='temp-audio.m4a', 
-            remove_temp=True,
-            verbose=False, 
-            logger=None
-        )
-        clip.close()
+            # --- COMPRESSION FIX ---
+            "-preset", "medium", # Slower than 'ultrafast', but MUCH smaller file size
+            "-crf", "23",        # Constant Rate Factor (23 is standard high quality, low size)
+            "-pix_fmt", "yuv420p", # Ensure web compatibility
+            
+            "-c:a", "aac"       # Audio Codec
+        ]
         
-        print(f"✅ Video Normalized: {output_path}")
-        return output_path
+        if vf_command:
+            cmd.extend(["-vf", vf_command])
+            cmd.extend(["-metadata:s:v:0", "rotate=0"]) 
+        
+        cmd.append(output_path)
+        
+        # 3. Execute
+        print(f"⚡ Rebuilding Video Pixels: {' '.join(cmd)}")
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if os.path.exists(output_path):
+            file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+            print(f"✅ Video Normalized: {output_path} ({file_size_mb:.1f} MB)")
+            return output_path
+        else:
+            print("❌ FFmpeg failed to create output. Returning original.")
+            return input_path
 
     except Exception as e:
         print(f"❌ Normalization Failed: {e}")
-        # Fallback: Return original path so the app doesn't crash
         return input_path

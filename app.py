@@ -4,6 +4,7 @@ import time
 import tempfile
 import re
 import json
+import base64
 from dotenv import load_dotenv
 from tools.report_generator import create_pdf, TRANSLATIONS
 from tools.video_editor import create_viral_clip, extract_frame, normalize_input_video
@@ -29,6 +30,34 @@ if "video_path" not in st.session_state:
     st.session_state["video_path"] = None
 if "email_draft" not in st.session_state:     # <--- NEW: Init Email State
     st.session_state["email_draft"] = None
+
+def render_video_html(video_path):
+    """
+    Renders a video using raw HTML5.
+    This bypasses Streamlit's st.video wrapper, fixing the aspect ratio/stretching bugs
+    on older versions.
+    """
+    try:
+        with open(video_path, "rb") as f:
+            video_bytes = f.read()
+        
+        # Convert video to Base64 text string
+        b64 = base64.b64encode(video_bytes).decode()
+        
+        # Inject Custom HTML Player
+        # 'max-height: 600px' ensures vertical videos don't take up the whole screen
+        # 'width: auto' allows natural aspect ratio
+        html_code = f"""
+        <div style="display: flex; justify-content: center; width: 100%;">
+            <video controls autoplay muted style="max-width: 100%; max-height: 600px; border-radius: 10px;">
+                <source src="data:video/mp4;base64,{b64}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>
+        """
+        st.markdown(html_code, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Video Display Error: {e}")
 
 # --- HELPER: ROBUST JSON EXTRACTOR ---
 def extract_clean_json(text):
@@ -71,6 +100,23 @@ def extract_clean_json(text):
         except:
             pass
     return {}
+
+# --- HELPER: CLEAN DISPLAY TEXT ---
+def clean_text_for_display(text):
+    """Removes system metadata (JSON, SEARCH_QUERY) so the user doesn't see it."""
+    if not text: return ""
+    
+    # 1. Aggressive Cut: Remove everything starting from "JSON_DATA"
+    # (?i) = Case insensitive
+    # \** = Matches optional bold asterisks
+    # .* = Matches EVERYTHING after it (using DOTALL)
+    text = re.sub(r"(?i)\**JSON_DATA.*", "", text, flags=re.DOTALL)
+    
+    # 2. Aggressive Cut: Remove everything starting from "SEARCH_QUERY"
+    text = re.sub(r"(?i)\**SEARCH_QUERY.*", "", text, flags=re.DOTALL)
+    
+    # 3. Cleanup trailing whitespace
+    return text.strip()
 
 # --- MAIN APP ---
 st.set_page_config(page_title="Court Lens AI", page_icon="🎾", layout="wide")
@@ -196,9 +242,9 @@ if uploaded_file:
     # 2. Use the cached path
     video_content = st.session_state["video_path"]
     
-    # 3. Show the video
+    # 3. Show the video (Using Custom HTML Player)
     if video_content:
-        st.video(video_content)
+        render_video_html(video_content)
 
 with st.sidebar:
     st.header(t["ui_sec_player"])
@@ -218,6 +264,9 @@ with st.sidebar:
         "Primary Stroke / Golpe Principal", 
         ["Match Play / Rally (Mixed)", "Forehand", "Backhand", "Serve", "Volley", "Overhead"]
     )
+
+# --- 🆕 ADDED SPACE HERE ---
+st.markdown("<br>", unsafe_allow_html=True) 
 
 # --- LOGIC: ANALYZE BUTTON ---
 if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
@@ -286,17 +335,8 @@ if st.session_state["analysis_result"]:
     # --- 1. ROBUST DATA EXTRACTION (The Fix) ---
     json_data = extract_clean_json(raw_text)
     
-    # 🧹 CLEANING
-    # Remove the JSON block from the text display so it looks clean
-    clean_text = raw_text
-    if json_data:
-        # Strip out the last {} block if we successfully parsed data
-        clean_text = re.sub(r"\{.*\}$", "", clean_text, flags=re.DOTALL).strip()
-
-    # Fallback cleaning for standard labels
-    clean_text = re.sub(r"\**JSON_DATA:?.*", "", clean_text, flags=re.DOTALL)
-    clean_text = re.sub(r"\**SEARCH_QUERY:?.*", "", clean_text, flags=re.IGNORECASE)
-    clean_text = clean_text.strip()
+    # 🧹 CLEANING FOR DISPLAY (Uses the new helper)
+    clean_text = clean_text_for_display(raw_text)
 
     st.success(t["ui_success"])
     st.markdown(clean_text)
@@ -372,8 +412,8 @@ if st.session_state["analysis_result"]:
     except Exception as e:
         st.error(f"PDF Error: {e}")
 
-    # 📧 EMAIL ASSISTANT (Placed after PDF button)
-    if st.session_state.get("email_draft"):
+    # 📧 EMAIL ASSISTANT (Now restricted to Creator Role)
+    if st.session_state.get("email_draft") and st.session_state.user_role == "creator":
         with st.expander("📧 Email Draft (Copy & Paste)", expanded=False):
             # We add a dynamic key based on text length to FORCE Streamlit to refresh the widget
             # whenever the text changes.
