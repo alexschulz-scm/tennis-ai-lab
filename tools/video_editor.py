@@ -180,48 +180,64 @@ def normalize_input_video(input_path):
         rotation = get_rotation(input_path)
         print(f"📐 Detected Rotation Flag: {rotation}°")
         
-        # 2. THE NUCLEAR FIX: HARD TRANSPOSE via FFmpeg
-        vf_command = ""
+        # 2. BUILD FFMPEG COMMAND
+        # We build a complex filter to handle Rotation AND Scaling simultaneously.
         
+        # Smart Scale Logic:
+        # "scale='if(gt(iw,ih),-2,720)':'if(gt(iw,ih),720,-2)'"
+        # Translation: 
+        # - If Landscape (Width > Height): Set Height to 720, calc Width automatically.
+        # - If Portrait (Height > Width): Set Width to 720, calc Height automatically.
+        # This guarantees 720p resolution regardless of orientation.
+        scale_filter = "scale='if(gt(iw,ih),-2,720)':'if(gt(iw,ih),720,-2)'"
+        
+        vf_chain = []
+        
+        # Add Rotation Filter if needed
         if rotation == 90:
-            print("🔧 Hard-Fixing 90° Rotation (Transpose)...")
-            vf_command = "transpose=1" 
+            print("🔧 Applying Rotation (90 CW) + Resize...")
+            vf_chain.append("transpose=1") 
         elif rotation == 180:
-            vf_command = "transpose=2,transpose=2"
+            vf_chain.append("transpose=2,transpose=2")
         elif rotation == 270:
-            vf_command = "transpose=2" 
+            vf_chain.append("transpose=2") 
+            
+        # Add Scaling Filter
+        vf_chain.append(scale_filter)
+        
+        # Combine filters with commas
+        full_vf_string = ",".join(vf_chain)
 
-        # Build the command
         cmd = [
             FFMPEG_BINARY,
-            "-y",               # Overwrite output
+            "-y",               # Overwrite
             "-i", input_path,   # Input
             "-c:v", "libx264",  # Video Codec
             
-            # --- COMPRESSION FIX ---
-            "-preset", "medium", # Slower than 'ultrafast', but MUCH smaller file size
-            "-crf", "23",        # Constant Rate Factor (23 is standard high quality, low size)
-            "-pix_fmt", "yuv420p", # Ensure web compatibility
+            # --- AGGRESSIVE COMPRESSION ---
+            "-preset", "veryfast", # Faster encoding
+            "-crf", "28",        # 28 = High Compression (Web Standard). 23 was too big.
+            "-pix_fmt", "yuv420p",
             
-            "-c:a", "aac"       # Audio Codec
+            "-vf", full_vf_string, # Apply Rotation + Resize
+            "-metadata:s:v:0", "rotate=0", # Clear rotation flag
+            
+            "-c:a", "aac",      # Audio Codec
+            "-b:a", "128k"      # Limit audio bitrate to save space
         ]
-        
-        if vf_command:
-            cmd.extend(["-vf", vf_command])
-            cmd.extend(["-metadata:s:v:0", "rotate=0"]) 
         
         cmd.append(output_path)
         
         # 3. Execute
-        print(f"⚡ Rebuilding Video Pixels: {' '.join(cmd)}")
+        print(f"⚡ Compressing & Normalizing: {' '.join(cmd)}")
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         if os.path.exists(output_path):
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-            print(f"✅ Video Normalized: {output_path} ({file_size_mb:.1f} MB)")
+            print(f"✅ Video Ready: {output_path} ({file_size_mb:.1f} MB)")
             return output_path
         else:
-            print("❌ FFmpeg failed to create output. Returning original.")
+            print("❌ FFmpeg failed. Returning original.")
             return input_path
 
     except Exception as e:

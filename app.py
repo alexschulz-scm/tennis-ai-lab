@@ -244,7 +244,9 @@ if uploaded_file:
     
     # 3. Show the video (Using Custom HTML Player)
     if video_content:
-        render_video_html(video_content)
+        # Added a spinner here so you know the player is loading
+        with st.spinner("🎥 Loading Video Player..."):
+            render_video_html(video_content)
 
 with st.sidebar:
     st.header(t["ui_sec_player"])
