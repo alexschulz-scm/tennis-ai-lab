@@ -8,6 +8,7 @@ import base64
 from dotenv import load_dotenv
 from tools.report_generator import create_pdf, TRANSLATIONS
 from tools.video_editor import create_viral_clip, extract_frame, normalize_input_video
+from tools.database import save_analysis_to_db, fetch_history
 
 # --- KEEPING THE MODULAR ARCHITECTURE ---
 from agent.state import AgentState
@@ -250,6 +251,7 @@ if uploaded_file:
 
 with st.sidebar:
     st.header(t["ui_sec_player"])
+    user_email = st.text_input("Player Email (For History)", placeholder="email@example.com")
     player_description = st.text_input(t["ui_desc_label"], placeholder="e.g. 'Red Shirt'")
     st.divider()
     st.header(t["ui_sec_context"])
@@ -310,6 +312,10 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         final_text = result_state.get("analysis_text", "")
         final_email = result_state.get("email_draft", "")  # <--- NEW: Get Email
         
+        # --- CRITICAL FIX: Extract JSON *BEFORE* Saving ---
+        # We use the robust extractor here to ensure we get the scores
+        structured_data = extract_clean_json(final_text)
+
         if not final_text:
             st.error("Agent finished but returned no text.")
             st.stop()
@@ -323,6 +329,19 @@ if st.button(t["ui_btn_analyze"], type="primary", use_container_width=True):
         st.session_state["email_draft"] = final_email      # <--- NEW: Save Email
         st.session_state["video_path"] = video_content
         
+        # 6. Save to Database (With Correct Data)
+        if user_email:
+            with st.spinner("💾 Saving to History..."):
+                saved = save_analysis_to_db(
+                    user_email, 
+                    player_description, 
+                    uploaded_file.name, 
+                    final_text, 
+                    structured_data, # <--- Passing the CLEANED data
+                    report_type      # <--- Passing the Report Type
+                )
+                if saved: st.toast("✅ Analysis Saved to Cloud!", icon="☁️")
+
         st.rerun()
 
     except Exception as e:
@@ -474,3 +493,25 @@ if st.session_state["analysis_result"]:
                     st.progress(score / 10)
                     st.markdown(f":{color}[**{score}/10**]")
                 st.divider()
+
+if user_email:
+    st.markdown("---")
+    if st.checkbox(f"📜 View History for {user_email}"):
+        history = fetch_history(user_email)
+        if not history:
+            st.info("No history found yet.")
+        else:
+            for item in history:
+                date = item['created_at'].split('T')[0]
+                
+                # Extract Metadata
+                meta = item.get("structured_data", {}) or {}
+                r_type = meta.get("report_type", "Analysis") # Get Report Type
+                score = item.get('confidence_score', 0)
+                
+                # Format the Title: [Date] | [Type] | [Video] | [Score]
+                title = f"📅 {date} | 🏷️ {r_type} | 📹 {item['video_name']} | ⭐ Confidence Score: {score:.1f}/10"
+                
+                with st.expander(title):
+                    st.markdown(clean_text_for_display(item['analysis_text']))
+                    st.caption("Raw Data Saved in Cloud ☁️")
